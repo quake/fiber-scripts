@@ -1,0 +1,2 @@
+669fc155cd847a88732b80c9767efd71292528aa6a87aed7aed6c70725a516b9  build/release/commitment-lock
+8efe551f868c58628948efbe30357337ff2d6153dce1f4e5ecc69e476b8f509c  build/release/funding-lock
