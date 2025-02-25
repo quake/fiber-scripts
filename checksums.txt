@@ -1,0 +1,4 @@
+63cd5f7e9ee718934d78d13aa4175ac6d1c8cdd8bff8e312af6b9ffccbee11ee  build/release/commitment-lock
+668c236e10699541af335bc2e0355ac96cb0baeff789754ff3d111afb3241a54  build/release/commitment-lock.debug
+768e4aa83a7a33d9ea75653062bae8204c5fab096bfc6f5c2ef6e8e98dd024bd  build/release/funding-lock
+e91db7cd3c0314cbeb64bfb3e83237ad4001d1530d8eb300e3c8356e2d3b5601  build/release/funding-lock.debug

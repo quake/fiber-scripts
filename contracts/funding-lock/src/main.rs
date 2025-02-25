@@ -43,6 +43,7 @@ impl From<SysError> for Error {
             SysError::LengthNotEnough(_) => Self::LengthNotEnough,
             SysError::Encoding => Self::Encoding,
             SysError::Unknown(err_code) => panic!("unexpected sys error {}", err_code),
+            _ => panic!("unreachable spawn related sys error"),
         }
     }
 }
