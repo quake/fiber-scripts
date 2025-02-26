@@ -19,9 +19,9 @@ use ckb_std::{
     error::SysError,
     high_level::{
         exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type,
-        load_input_since, load_script, load_tx_hash, load_witness,
+        load_input_since, load_script, load_tx_hash, load_witness, QueryIter,
     },
-    since::Since,
+    since::{EpochNumberWithFraction, LockValue, Since},
 };
 use hex::encode;
 use sha2::{Digest, Sha256};
@@ -38,14 +38,13 @@ pub enum Error {
     MultipleInputs,
     InvalidSince,
     InvalidUnlockType,
-    InvalidHtlcType,
+    InvalidExpiry,
     ArgsLenError,
     WitnessLenError,
     EmptyWitnessArgsError,
     WitnessHashError,
     InvalidFundingTx,
     InvalidRevocationVersion,
-    InvalidOutPoint,
     OutputCapacityError,
     OutputLockError,
     OutputTypeError,
@@ -286,6 +285,7 @@ fn auth() -> Result<(), Error> {
         let new_pending_htlc_count = [(pending_htlc_count - 1) as u8];
         new_pending_htlcs.push(&new_pending_htlc_count);
 
+        let delay_epoch = Since::new(u64::from_le_bytes(args[20..28].try_into().unwrap()));
         for (i, htlc_script) in witness[1..pending_htlcs_len]
             .chunks(HTLC_SCRIPT_LEN)
             .enumerate()
@@ -295,6 +295,10 @@ fn auth() -> Result<(), Error> {
                 match htlc.htlc_type() {
                     HtlcType::Offered => {
                         if raw_since_value == 0 {
+                            // Preimage unlock delay_epoch should be shorter than the expiry unlock, we use 1/3 of delay_epoch
+                            if !check_input_since(mul(delay_epoch, 1, 3)) {
+                                return Err(Error::InvalidSince);
+                            }
                             // when input since is 0, it means the unlock logic is for remote_htlc pubkey and preimage
                             let preimage = &witness[pending_htlcs_len + SIGNATURE_LEN..];
                             if match htlc.payment_hash_type() {
@@ -310,6 +314,10 @@ fn auth() -> Result<(), Error> {
                             new_amount -= htlc.payment_amount();
                             pubkey_hash.copy_from_slice(htlc.remote_htlc_pubkey_hash());
                         } else {
+                            // Expiry unlock delay_epoch should be shorter than non-pending unlock and longer than the preimage unlock, we use 2/3 of delay_epoch
+                            if !check_input_since(mul(delay_epoch, 2, 3)) {
+                                return Err(Error::InvalidSince);
+                            }
                             // when input since is not 0, it means the unlock logic is for local_htlc pubkey and htlc expiry
                             let since = Since::new(raw_since_value);
                             let htlc_expiry = Since::new(htlc.htlc_expiry());
@@ -317,12 +325,16 @@ fn auth() -> Result<(), Error> {
                                 new_amount -= htlc.payment_amount();
                                 pubkey_hash.copy_from_slice(htlc.local_htlc_pubkey_hash());
                             } else {
-                                return Err(Error::InvalidSince);
+                                return Err(Error::InvalidExpiry);
                             }
                         }
                     }
                     HtlcType::Received => {
                         if raw_since_value == 0 {
+                            // Preimage unlock delay_epoch should be shorter than the expiry unlock, we use 1/3 of delay_epoch
+                            if !check_input_since(mul(delay_epoch, 1, 3)) {
+                                return Err(Error::InvalidSince);
+                            }
                             // when input since is 0, it means the unlock logic is for local_htlc pubkey and preimage
                             let preimage = &witness[pending_htlcs_len + SIGNATURE_LEN..];
                             if match htlc.payment_hash_type() {
@@ -338,6 +350,10 @@ fn auth() -> Result<(), Error> {
                             new_amount -= htlc.payment_amount();
                             pubkey_hash.copy_from_slice(htlc.local_htlc_pubkey_hash());
                         } else {
+                            // Expiry unlock delay_epoch should be shorter than non-pending unlock and longer than the preimage unlock, we use 2/3 of delay_epoch
+                            if !check_input_since(mul(delay_epoch, 2, 3)) {
+                                return Err(Error::InvalidSince);
+                            }
                             // when input since is not 0, it means the unlock logic is for remote_htlc pubkey and htlc expiry
                             let since = Since::new(raw_since_value);
                             let htlc_expiry = Since::new(htlc.htlc_expiry());
@@ -345,7 +361,7 @@ fn auth() -> Result<(), Error> {
                                 new_amount -= htlc.payment_amount();
                                 pubkey_hash.copy_from_slice(htlc.remote_htlc_pubkey_hash());
                             } else {
-                                return Err(Error::InvalidSince);
+                                return Err(Error::InvalidExpiry);
                             }
                         }
                     }
@@ -419,4 +435,89 @@ fn auth() -> Result<(), Error> {
         exec_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args).map_err(|_| Error::AuthError)?;
         Ok(())
     }
+}
+
+// Check if any input `since` is a relative epoch and >= `delay_epoch`.
+fn check_input_since(delay_epoch: Since) -> bool {
+    QueryIter::new(load_input_since, Source::Input).any(|since| {
+        let since = Since::new(since);
+        since
+            .extract_lock_value()
+            .map(|lock_value| matches!(lock_value, LockValue::EpochNumberWithFraction(_)))
+            .unwrap_or_default()
+            && since.is_relative()
+            && since >= delay_epoch
+    })
+}
+
+// Calculate the product of delay_epoch and a fraction
+fn mul(delay_epoch: Since, numerator: u64, denominator: u64) -> Since {
+    // delay_epoch's format is checked in offchain code, we can safely unwrap here
+    let delay = delay_epoch.extract_lock_value().unwrap().epoch().unwrap();
+    let full_numerator = numerator * (delay.number() * delay.length() + delay.index());
+    let new_denominator = denominator * delay.length();
+    let new_integer = full_numerator / new_denominator;
+    let new_numerator = full_numerator % new_denominator;
+
+    // nomalize the fraction (max epoch length is 1800)
+    let scale_factor = if new_denominator > 1800 {
+        new_denominator / 1800 + 1
+    } else {
+        1
+    };
+
+    Since::from_epoch(
+        EpochNumberWithFraction::new(
+            new_integer,
+            new_numerator / scale_factor,
+            new_denominator / scale_factor,
+        ),
+        false,
+    )
+}
+
+#[test]
+fn test_mul() {
+    let delay_epoch = Since::from_epoch(EpochNumberWithFraction::new(7, 60, 100), false);
+    // 7.6 * 1 / 3 = 2.533333333333333 = 2 (epoch) + 160 (index) / 300 (length)
+    assert_eq!(
+        Since::from_epoch(EpochNumberWithFraction::new(2, 160, 300), false),
+        mul(delay_epoch, 1, 3)
+    );
+    // 7.6 * 2 / 3 = 5.066666666666666 = 5 (epoch) + 20 (index) / 300 (length)
+    assert_eq!(
+        Since::from_epoch(EpochNumberWithFraction::new(5, 20, 300), false),
+        mul(delay_epoch, 2, 3)
+    );
+
+    let delay_epoch = Since::from_epoch(EpochNumberWithFraction::new(7, 700, 2100), false);
+    // 7.3333333333 * 1 / 3 = 2.44444444444444 = 2 (epoch) + 700 (normalized index) / 1575 (normalized length)
+    assert_eq!(
+        Since::from_epoch(EpochNumberWithFraction::new(2, 700, 1575), false),
+        mul(delay_epoch, 1, 3)
+    );
+    // 7.3333333333 * 2 / 3 = 4.888888888866666 = 4 (epoch) + 1400 (normalized index) / 1575 (normalized length)
+    assert_eq!(
+        Since::from_epoch(EpochNumberWithFraction::new(4, 1400, 1575), false),
+        mul(delay_epoch, 2, 3)
+    );
+
+    let delay_epoch = Since::from_epoch(EpochNumberWithFraction::new(10, 1, 2), false);
+    // 10.5 * 1 / 3 = 3.5 = 3 (epoch) + 3 (index) / 6 (length)
+    assert_eq!(
+        Since::from_epoch(EpochNumberWithFraction::new(3, 3, 6), false),
+        mul(delay_epoch, 1, 3)
+    );
+    // 10.5 * 2 / 3 = 7.0 = 7 (epoch) + 0 (index) / 6 (length)
+    assert_eq!(
+        Since::from_epoch(EpochNumberWithFraction::new(7, 0, 6), false),
+        mul(delay_epoch, 2, 3)
+    );
+
+    let delay_epoch = Since::from_epoch(EpochNumberWithFraction::new(5, 42, 99), false);
+    // 5.4242424242 * 1 / 3 = 1.80808080808 = 1 (epoch) + 240 (index) / 297 (length)
+    assert_eq!(
+        Since::from_epoch(EpochNumberWithFraction::new(1, 240, 297), false),
+        mul(delay_epoch, 1, 3)
+    );
 }

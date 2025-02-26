@@ -3,6 +3,7 @@ use std::vec;
 use super::*;
 use ckb_std::since::{EpochNumberWithFraction, Since};
 use ckb_testtool::{
+    builtin::ALWAYS_SUCCESS,
     ckb_crypto::secp::Generator,
     ckb_hash::blake2b_256,
     ckb_types::{bytes::Bytes, core::TransactionBuilder, packed::*, prelude::*},
@@ -353,13 +354,15 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     let auth_bin = loader.load_binary("../../deps/auth");
     let commitment_lock_out_point = context.deploy_cell(commitment_lock_bin);
     let auth_out_point = context.deploy_cell(auth_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
 
     // prepare script
     let (_sec_key_1, _sec_key_2, key_agg_ctx) = generate_multisig_keys();
     let aggregated_pubkey: PublicKey = key_agg_ctx.aggregated_pubkey();
     let x_only_pubkey = aggregated_pubkey.x_only_public_key().0.serialize();
     let pubkey_hash = blake2b_256(x_only_pubkey);
-    let delay_epoch = Since::from_epoch(EpochNumberWithFraction::new(10, 1, 2), false); // 42 hours
+    let delay_epoch = Since::from_epoch(EpochNumberWithFraction::new(10, 1, 2), false); // 10.5 epoch =~ 42 hours
+    let half_delay_epoch = Since::from_epoch(EpochNumberWithFraction::new(5, 0, 1), false); // 5 epoch
     let commitment_tx_version = 42u64;
 
     let mut generator = Generator::new();
@@ -404,13 +407,19 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     let lock_script = context
         .build_script(&commitment_lock_out_point, args.clone().into())
         .expect("script");
+    let always_success_script = context
+        .build_script(&always_success_out_point, Bytes::new())
+        .expect("script");
 
     // prepare cell deps
     let commitment_lock_dep = CellDep::new_builder()
         .out_point(commitment_lock_out_point)
         .build();
     let auth_dep = CellDep::new_builder().out_point(auth_out_point).build();
-    let cell_deps = vec![commitment_lock_dep, auth_dep].pack();
+    let always_success_dep = CellDep::new_builder()
+        .out_point(always_success_out_point)
+        .build();
+    let cell_deps = vec![commitment_lock_dep, auth_dep, always_success_dep].pack();
 
     // prepare cells
     let input_out_point = context.create_cell(
@@ -420,11 +429,29 @@ fn test_commitment_lock_with_two_pending_htlcs() {
             .build(),
         Bytes::new(),
     );
+    let delay_input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .lock(always_success_script)
+            .build(),
+        Bytes::new(),
+    );
 
     // build transaction with remote_htlc_pubkey unlock offered pending htlc 1
     let input = CellInput::new_builder()
         .previous_output(input_out_point.clone())
         .build();
+    let delay_epoch_input = CellInput::new_builder()
+        .previous_output(delay_input_out_point.clone())
+        .since(delay_epoch.as_u64().pack())
+        .build();
+    let inputs = vec![
+        input,
+        delay_epoch_input
+            .clone()
+            .as_builder()
+            .since(half_delay_epoch.as_u64().pack())
+            .build(),
+    ];
 
     let new_pending_htlcs = [
         [1].to_vec(),
@@ -456,7 +483,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     let outputs_data = vec![Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
-        .input(input)
+        .inputs(inputs)
         .outputs(outputs)
         .outputs_data(outputs_data.pack())
         .build();
@@ -526,6 +553,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .previous_output(input_out_point.clone())
         .since(since.as_u64().pack())
         .build();
+    let inputs = vec![input, delay_epoch_input.clone()];
     let outputs = vec![CellOutput::new_builder()
         .capacity((1000 * BYTE_SHANNONS - payment_amount1 as u64).pack())
         .lock(new_lock_script.clone())
@@ -533,7 +561,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     let outputs_data = vec![Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
-        .input(input)
+        .inputs(inputs)
         .outputs(outputs.clone())
         .outputs_data(outputs_data.pack())
         .build();
@@ -567,9 +595,11 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .previous_output(input_out_point.clone())
         .since(since.as_u64().pack())
         .build();
+    let inputs = vec![input, delay_epoch_input.clone()];
+
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
-        .input(input)
+        .inputs(inputs)
         .outputs(outputs)
         .outputs_data(outputs_data.pack())
         .build();
@@ -602,6 +632,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .since(since.as_u64().pack())
         .previous_output(input_out_point.clone())
         .build();
+    let inputs = vec![input, delay_epoch_input.clone()];
 
     let new_pending_htlcs = [
         [1].to_vec(),
@@ -628,7 +659,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     let outputs_data = vec![Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
-        .input(input)
+        .inputs(inputs)
         .outputs(outputs)
         .outputs_data(outputs_data.pack())
         .build();
@@ -658,10 +689,18 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .expect("pass verification");
     println!("consume cycles: {}", cycles);
 
-    // // build transaction with local_htlc_pubkey unlock received pending htlc 2
+    // build transaction with local_htlc_pubkey unlock received pending htlc 2
     let input = CellInput::new_builder()
         .previous_output(input_out_point.clone())
         .build();
+    let inputs = vec![
+        input,
+        delay_epoch_input
+            .clone()
+            .as_builder()
+            .since(half_delay_epoch.as_u64().pack())
+            .build(),
+    ];
     let outputs = vec![CellOutput::new_builder()
         .capacity((1000 * BYTE_SHANNONS - payment_amount2 as u64).pack())
         .lock(new_lock_script.clone())
@@ -669,7 +708,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     let outputs_data = vec![Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps)
-        .input(input)
+        .inputs(inputs)
         .outputs(outputs)
         .outputs_data(outputs_data.pack())
         .build();
@@ -740,6 +779,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
     let commitment_lock_out_point = context.deploy_cell(commitment_lock_bin);
     let auth_out_point = context.deploy_cell(auth_bin);
     let simple_udt_out_point = context.deploy_cell(simple_udt_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
 
     // prepare script
     let (_sec_key_1, _sec_key_2, key_agg_ctx) = generate_multisig_keys();
@@ -747,6 +787,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
     let x_only_pubkey = aggregated_pubkey.x_only_public_key().0.serialize();
     let pubkey_hash = blake2b_256(x_only_pubkey);
     let delay_epoch = Since::from_epoch(EpochNumberWithFraction::new(10, 1, 2), false); // 42 hours
+    let half_delay_epoch = Since::from_epoch(EpochNumberWithFraction::new(5, 0, 1), false); // 5 epoch
     let commitment_tx_version = 42u64;
 
     let mut generator = Generator::new();
@@ -791,7 +832,9 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
     let lock_script = context
         .build_script(&commitment_lock_out_point, args.clone().into())
         .expect("script");
-
+    let always_success_script = context
+        .build_script(&always_success_out_point, Bytes::new())
+        .expect("script");
     let type_script = context
         .build_script(&simple_udt_out_point, vec![42; 32].into())
         .expect("script");
@@ -801,10 +844,19 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .out_point(commitment_lock_out_point)
         .build();
     let auth_dep = CellDep::new_builder().out_point(auth_out_point).build();
+    let always_success_dep = CellDep::new_builder()
+        .out_point(always_success_out_point)
+        .build();
     let simple_udt_dep = CellDep::new_builder()
         .out_point(simple_udt_out_point)
         .build();
-    let cell_deps = vec![commitment_lock_dep, auth_dep, simple_udt_dep].pack();
+    let cell_deps = vec![
+        commitment_lock_dep,
+        auth_dep,
+        always_success_dep,
+        simple_udt_dep,
+    ]
+    .pack();
 
     // prepare cells
     let total_sudt_amount = 424242424242424242u128;
@@ -816,11 +868,29 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
             .build(),
         total_sudt_amount.to_le_bytes().to_vec().into(),
     );
+    let delay_input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .lock(always_success_script)
+            .build(),
+        Bytes::new(),
+    );
 
     // build transaction with remote_htlc_pubkey unlock offered pending htlc 1
     let input = CellInput::new_builder()
         .previous_output(input_out_point.clone())
         .build();
+    let delay_epoch_input = CellInput::new_builder()
+        .previous_output(delay_input_out_point.clone())
+        .since(delay_epoch.as_u64().pack())
+        .build();
+    let inputs = vec![
+        input,
+        delay_epoch_input
+            .clone()
+            .as_builder()
+            .since(half_delay_epoch.as_u64().pack())
+            .build(),
+    ];
 
     let new_pending_htlcs = [
         [1].to_vec(),
@@ -855,7 +925,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .into()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
-        .input(input)
+        .inputs(inputs)
         .outputs(outputs)
         .outputs_data(outputs_data.pack())
         .build();
@@ -893,6 +963,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .previous_output(input_out_point.clone())
         .since(since.as_u64().pack())
         .build();
+    let inputs = vec![input, delay_epoch_input.clone()];
     let outputs = vec![CellOutput::new_builder()
         .capacity((1000 * BYTE_SHANNONS).pack())
         .lock(new_lock_script.clone())
@@ -904,7 +975,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .into()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
-        .input(input)
+        .inputs(inputs)
         .outputs(outputs)
         .outputs_data(outputs_data.pack())
         .build();
@@ -940,7 +1011,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .since(since.as_u64().pack())
         .previous_output(input_out_point.clone())
         .build();
-
+    let inputs = vec![input, delay_epoch_input.clone()];
     let new_pending_htlcs = [
         [1].to_vec(),
         [0b00000000].to_vec(),
@@ -970,7 +1041,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .into()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
-        .input(input)
+        .inputs(inputs)
         .outputs(outputs)
         .outputs_data(outputs_data.pack())
         .build();
@@ -1004,6 +1075,14 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
     let input = CellInput::new_builder()
         .previous_output(input_out_point.clone())
         .build();
+    let inputs = vec![
+        input,
+        delay_epoch_input
+            .clone()
+            .as_builder()
+            .since(half_delay_epoch.as_u64().pack())
+            .build(),
+    ];
     let outputs = vec![CellOutput::new_builder()
         .capacity((1000 * BYTE_SHANNONS).pack())
         .lock(new_lock_script.clone())
@@ -1015,7 +1094,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .into()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps)
-        .input(input)
+        .inputs(inputs)
         .outputs(outputs)
         .outputs_data(outputs_data.pack())
         .build();
