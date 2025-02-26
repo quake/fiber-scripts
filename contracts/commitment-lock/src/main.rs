@@ -314,6 +314,7 @@ fn auth() -> Result<(), Error> {
                             let since = Since::new(raw_since_value);
                             let htlc_expiry = Since::new(htlc.htlc_expiry());
                             if since >= htlc_expiry {
+                                new_amount -= htlc.payment_amount();
                                 pubkey_hash.copy_from_slice(htlc.local_htlc_pubkey_hash());
                             } else {
                                 return Err(Error::InvalidSince);
@@ -334,6 +335,7 @@ fn auth() -> Result<(), Error> {
                             } {
                                 return Err(Error::PreimageError);
                             }
+                            new_amount -= htlc.payment_amount();
                             pubkey_hash.copy_from_slice(htlc.local_htlc_pubkey_hash());
                         } else {
                             // when input since is not 0, it means the unlock logic is for remote_htlc pubkey and htlc expiry

@@ -28,8 +28,8 @@ For pending HTLC unlock process, the transaction must provide the following fiel
     - `htlc_type`: 1 byte, high 7 bits for payment hash type (0000000 for blake2b, 0000001 for sha256), low 1 bit for offered or received type (0 for offered HTLC, 1 for received HTLC)
     - `payment_amount`: 16 bytes, u128 in little endian
     - `payment_hash`: 20 bytes
-    - `local_htlc_pubkey_hash`: 20 bytes, hash result of blake160(local_htlc_pubkey)
     - `remote_htlc_pubkey_hash`: 20 bytes, hash result of blake160(remote_htlc_pubkey)
+    - `local_htlc_pubkey_hash`: 20 bytes, hash result of blake160(local_htlc_pubkey)
     - `htlc_expiry`: 8 bytes, u64 in little endian, must be an absolute timestamp
 - `signature`: 65 bytes, the signature of the xxx_pubkey
 - `preimage`: 32 bytes, an optional field to provide the preimage of the payment_hash
