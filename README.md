@@ -15,7 +15,7 @@ make test
 
 ## Testnet deployment information
 
-We have deployed the scripts on the testnet, you can find the latest deployment information in the [deployment](deployment/testnet/migrations/2024-06-14-014027.json) directory.
+We have deployed the scripts on the testnet, you can find the latest deployment information in the [deployment](deployment/testnet/migrations/2025-02-28-111246.json) directory.
 
 
 *This workspace was bootstrapped with [ckb-script-templates].*
