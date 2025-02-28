@@ -1,0 +1,31 @@
+[[cells]]
+name = "auth"
+enable_type_id = false
+location = { file = "../../deps/auth" }
+
+[[cells]]
+name = "funding-lock"
+enable_type_id = true
+location = { file = "../../build/release/funding-lock" }
+
+[[cells]]
+name = "commitment-lock"
+enable_type_id = true
+location = { file = "../../build/release/commitment-lock" }
+
+[lock]
+code_hash = "0x5c5069eb0857efc65e1bca0c07df34c31663b3622fd3876c876320fc9634e2a8"
+args = "0x99a247625d115874750d54044b65227b48a5d498"
+hash_type = "type"
+
+# For unlocking inputs with multisig lock script
+[multisig_config]
+sighash_addresses = [
+  "ckb1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt2rr0vthywaa50xwsq2hvk2yvt998w799ra8t73gunvrjrlw4agv2t7np",
+  "ckb1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt2rr0vthywaa50xwsq2j24grqwjffj4ys2k2wtytfcvzhcf8tugut5v4n",
+  "ckb1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt2rr0vthywaa50xwsq2u7q5rqr3nam68g2wfel9365l855m7fcg58j52a",
+  "ckb1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt2rr0vthywaa50xwsqv8rhlzfvjl22jhg6j7046x9a6xph3vvwq2luq73",
+  "ckb1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt2rr0vthywaa50xwsqvsd9auv0wsq0a9mmp8f6hqax3fg8430mstg754t",
+]
+require_first_n = 0
+threshold = 3

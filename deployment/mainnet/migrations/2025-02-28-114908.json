@@ -1,0 +1,29 @@
+{
+  "cell_recipes": [
+    {
+      "name": "auth",
+      "tx_hash": "0x22ccb3018ca1aa7acd7b0ef7f5b01048be2525bb7364eafc8af04fd4d7279384",
+      "index": 0,
+      "occupied_capacity": 15096500000000,
+      "data_hash": "0x07f2364fe08ef796277d85ead9f44140b5c60feb7a6332f66c6794fdefc3645b",
+      "type_id": null
+    },
+    {
+      "name": "funding-lock",
+      "tx_hash": "0x22ccb3018ca1aa7acd7b0ef7f5b01048be2525bb7364eafc8af04fd4d7279384",
+      "index": 1,
+      "occupied_capacity": 3047800000000,
+      "data_hash": "0x148d9176f78bc13d9d2ec65e3630df9fd6a2019364463dbc5ca69bcf660540c0",
+      "type_id": "0xe45b1f8f21bff23137035a3ab751d75b36a981deec3e7820194b9c042967f4f1"
+    },
+    {
+      "name": "commitment-lock",
+      "tx_hash": "0x22ccb3018ca1aa7acd7b0ef7f5b01048be2525bb7364eafc8af04fd4d7279384",
+      "index": 2,
+      "occupied_capacity": 6375000000000,
+      "data_hash": "0xff746c652d4c4852fd54d4494cfbde6f733c117618e993f43022237552e4f920",
+      "type_id": "0x2d45c4d3ed3e942f1945386ee82a5d1b7e4bb16d7fe1ab015421174ab747406c"
+    }
+  ],
+  "dep_group_recipes": []
+}
