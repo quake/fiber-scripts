@@ -4,6 +4,7 @@
 #[cfg(test)]
 extern crate alloc;
 
+use ckb_hash::new_blake2b;
 #[cfg(not(test))]
 use ckb_std::default_alloc;
 #[cfg(not(test))]
@@ -16,7 +17,10 @@ use ckb_std::{
     ckb_constants::Source,
     ckb_types::{bytes::Bytes, core::ScriptHashType, prelude::*},
     error::SysError,
-    high_level::{exec_cell, load_input_since, load_script, load_tx_hash, load_witness},
+    high_level::{
+        exec_cell, load_cell, load_cell_data, load_input_out_point, load_input_since, load_script,
+        load_witness, QueryIter,
+    },
 };
 use hex::encode;
 
@@ -76,7 +80,24 @@ fn auth() -> Result<(), Error> {
         return Err(Error::EmptyWitnessArgsError);
     }
 
-    let message = load_tx_hash()?;
+    let message = {
+        let mut hasher = new_blake2b();
+        // hash all input out points
+        QueryIter::new(load_input_out_point, Source::Input).for_each(|out_point| {
+            hasher.update(out_point.as_slice());
+        });
+        // hash all outputs with data
+        QueryIter::new(load_cell, Source::Output)
+            .zip(QueryIter::new(load_cell_data, Source::Output))
+            .for_each(|(cell, data)| {
+                hasher.update(cell.as_slice());
+                hasher.update((data.len() as u32).to_le_bytes().as_ref());
+                hasher.update(data.as_slice());
+            });
+        let mut hash_result = [0u8; 32];
+        hasher.finalize(&mut hash_result);
+        hash_result
+    };
 
     let mut pubkey_hash = [0u8; 20];
     let script = load_script()?;
