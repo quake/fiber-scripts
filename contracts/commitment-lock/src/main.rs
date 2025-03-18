@@ -4,7 +4,7 @@
 #[cfg(test)]
 extern crate alloc;
 
-use ckb_hash::{blake2b_256, new_blake2b};
+use ckb_hash::blake2b_256;
 #[cfg(not(test))]
 use ckb_std::default_alloc;
 #[cfg(not(test))]
@@ -19,7 +19,7 @@ use ckb_std::{
     error::SysError,
     high_level::{
         exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type,
-        load_input_out_point, load_input_since, load_script, load_witness, QueryIter,
+        load_input_since, load_script, load_transaction, load_witness, QueryIter,
     },
     since::{EpochNumberWithFraction, LockValue, Since},
 };
@@ -251,22 +251,12 @@ fn auth() -> Result<(), Error> {
 
         let raw_since_value = load_input_since(0, Source::GroupInput)?;
         let message = {
-            let mut hasher = new_blake2b();
-            // hash all input out points
-            QueryIter::new(load_input_out_point, Source::Input).for_each(|out_point| {
-                hasher.update(out_point.as_slice());
-            });
-            // hash all outputs with data
-            QueryIter::new(load_cell, Source::Output)
-                .zip(QueryIter::new(load_cell_data, Source::Output))
-                .for_each(|(cell, data)| {
-                    hasher.update(cell.as_slice());
-                    hasher.update((data.len() as u32).to_le_bytes().as_ref());
-                    hasher.update(data.as_slice());
-                });
-            let mut hash_result = [0u8; 32];
-            hasher.finalize(&mut hash_result);
-            hash_result
+            let tx = load_transaction()?
+                .raw()
+                .as_builder()
+                .cell_deps(Default::default())
+                .build();
+            blake2b_256(tx.as_slice())
         };
         let mut signature = [0u8; 65];
         let mut pubkey_hash = [0u8; 20];

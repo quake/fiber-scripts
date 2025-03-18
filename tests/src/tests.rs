@@ -5,7 +5,7 @@ use ckb_std::since::{EpochNumberWithFraction, Since};
 use ckb_testtool::{
     builtin::ALWAYS_SUCCESS,
     ckb_crypto::secp::Generator,
-    ckb_hash::{blake2b_256, new_blake2b},
+    ckb_hash::blake2b_256,
     ckb_types::{
         bytes::Bytes, core::TransactionBuilder, core::TransactionView, packed::*, prelude::*,
     },
@@ -101,20 +101,13 @@ fn multisig(
 /// We prefer computing the message this way rather than using the transaction hash.
 /// This ensures the signature remains valid even if the script code is updated.
 fn compute_tx_message(tx: &TransactionView) -> [u8; 32] {
-    let mut hasher = new_blake2b();
-    // all input out points
-    for input in tx.inputs() {
-        hasher.update(input.previous_output().as_slice());
-    }
-    // all outputs with data
-    for (output, data) in tx.outputs_with_data_iter() {
-        hasher.update(output.as_slice());
-        hasher.update((data.len() as u32).to_le_bytes().as_ref());
-        hasher.update(&data);
-    }
-    let mut hash_result = [0u8; 32];
-    hasher.finalize(&mut hash_result);
-    hash_result
+    let tx = tx
+        .data()
+        .raw()
+        .as_builder()
+        .cell_deps(Default::default())
+        .build();
+    blake2b_256(tx.as_slice())
 }
 
 #[test]
