@@ -4,6 +4,7 @@
 #[cfg(test)]
 extern crate alloc;
 
+use ckb_hash::blake2b_256;
 #[cfg(not(test))]
 use ckb_std::default_alloc;
 #[cfg(not(test))]
@@ -16,7 +17,7 @@ use ckb_std::{
     ckb_constants::Source,
     ckb_types::{bytes::Bytes, core::ScriptHashType, prelude::*},
     error::SysError,
-    high_level::{exec_cell, load_input_since, load_script, load_tx_hash, load_witness},
+    high_level::{exec_cell, load_input_since, load_script, load_transaction, load_witness},
 };
 use hex::encode;
 
@@ -76,7 +77,14 @@ fn auth() -> Result<(), Error> {
         return Err(Error::EmptyWitnessArgsError);
     }
 
-    let message = load_tx_hash()?;
+    let message = {
+        let tx = load_transaction()?
+            .raw()
+            .as_builder()
+            .cell_deps(Default::default())
+            .build();
+        blake2b_256(tx.as_slice())
+    };
 
     let mut pubkey_hash = [0u8; 20];
     let script = load_script()?;

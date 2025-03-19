@@ -6,7 +6,9 @@ use ckb_testtool::{
     builtin::ALWAYS_SUCCESS,
     ckb_crypto::secp::Generator,
     ckb_hash::blake2b_256,
-    ckb_types::{bytes::Bytes, core::TransactionBuilder, packed::*, prelude::*},
+    ckb_types::{
+        bytes::Bytes, core::TransactionBuilder, core::TransactionView, packed::*, prelude::*,
+    },
     context::Context,
 };
 use musig2::{
@@ -95,6 +97,19 @@ fn multisig(
     aggregated_signature_1.to_bytes().to_vec()
 }
 
+/// Compute the message of a transaction
+/// We prefer computing the message this way rather than using the transaction hash.
+/// This ensures the signature remains valid even if the script code is updated.
+fn compute_tx_message(tx: &TransactionView) -> [u8; 32] {
+    let tx = tx
+        .data()
+        .raw()
+        .as_builder()
+        .cell_deps(Default::default())
+        .build();
+    blake2b_256(tx.as_slice())
+}
+
 #[test]
 fn test_funding_lock() {
     // deploy contract
@@ -159,7 +174,7 @@ fn test_funding_lock() {
         .build();
 
     // sign and add witness
-    let message: [u8; 32] = tx.hash().as_slice().try_into().unwrap();
+    let message: [u8; 32] = compute_tx_message(&tx);
     let signature = multisig(sec_key_1, sec_key_2, key_agg_ctx, message);
 
     let witness = [
@@ -480,7 +495,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .capacity((1000 * BYTE_SHANNONS - payment_amount1 as u64).pack())
         .lock(new_lock_script.clone())
         .build()];
-    let outputs_data = vec![Bytes::new()];
+    let outputs_data = [Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
         .inputs(inputs)
@@ -489,7 +504,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .build();
 
     // sign with remote_htlc_pubkey
-    let message: [u8; 32] = tx.hash().as_slice().try_into().unwrap();
+    let message: [u8; 32] = compute_tx_message(&tx);
 
     let signature = remote_htlc_key1
         .0
@@ -558,7 +573,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .capacity((1000 * BYTE_SHANNONS - payment_amount1 as u64).pack())
         .lock(new_lock_script.clone())
         .build()];
-    let outputs_data = vec![Bytes::new()];
+    let outputs_data = [Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
         .inputs(inputs)
@@ -567,7 +582,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .build();
 
     // sign with local_htlc_pubkey
-    let message: [u8; 32] = tx.hash().as_slice().try_into().unwrap();
+    let message: [u8; 32] = compute_tx_message(&tx);
 
     let signature = local_htlc_key1
         .0
@@ -605,7 +620,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .build();
 
     // sign with local_htlc_pubkey
-    let message: [u8; 32] = tx.hash().as_slice().try_into().unwrap();
+    let message: [u8; 32] = compute_tx_message(&tx);
 
     let signature = local_htlc_key1
         .0
@@ -656,7 +671,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .capacity((1000 * BYTE_SHANNONS - payment_amount2 as u64).pack())
         .lock(new_lock_script.clone())
         .build()];
-    let outputs_data = vec![Bytes::new()];
+    let outputs_data = [Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
         .inputs(inputs)
@@ -665,7 +680,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .build();
 
     // sign with remote_htlc_pubkey
-    let message: [u8; 32] = tx.hash().as_slice().try_into().unwrap();
+    let message: [u8; 32] = compute_tx_message(&tx);
 
     let signature = remote_htlc_key2
         .0
@@ -705,7 +720,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .capacity((1000 * BYTE_SHANNONS - payment_amount2 as u64).pack())
         .lock(new_lock_script.clone())
         .build()];
-    let outputs_data = vec![Bytes::new()];
+    let outputs_data = [Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps)
         .inputs(inputs)
@@ -714,7 +729,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .build();
 
     // sign with local_htlc_pubkey
-    let message: [u8; 32] = tx.hash().as_slice().try_into().unwrap();
+    let message: [u8; 32] = compute_tx_message(&tx);
 
     let signature = local_htlc_key2
         .0
@@ -931,7 +946,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .build();
 
     // sign with remote_htlc_pubkey
-    let message: [u8; 32] = tx.hash().as_slice().try_into().unwrap();
+    let message: [u8; 32] = compute_tx_message(&tx);
 
     let signature = remote_htlc_key1
         .0
@@ -981,7 +996,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .build();
 
     // sign with local_htlc_pubkey
-    let message: [u8; 32] = tx.hash().as_slice().try_into().unwrap();
+    let message: [u8; 32] = compute_tx_message(&tx);
 
     let signature = local_htlc_key1
         .0
@@ -1047,7 +1062,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .build();
 
     // sign with remote_htlc_pubkey
-    let message: [u8; 32] = tx.hash().as_slice().try_into().unwrap();
+    let message: [u8; 32] = compute_tx_message(&tx);
 
     let signature = remote_htlc_key2
         .0
@@ -1100,7 +1115,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .build();
 
     // sign with local_htlc_pubkey
-    let message: [u8; 32] = tx.hash().as_slice().try_into().unwrap();
+    let message: [u8; 32] = compute_tx_message(&tx);
 
     let signature = local_htlc_key2
         .0

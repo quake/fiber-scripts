@@ -19,7 +19,7 @@ use ckb_std::{
     error::SysError,
     high_level::{
         exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type,
-        load_input_since, load_script, load_tx_hash, load_witness, QueryIter,
+        load_input_since, load_script, load_transaction, load_witness, QueryIter,
     },
     since::{EpochNumberWithFraction, LockValue, Since},
 };
@@ -193,7 +193,7 @@ fn auth() -> Result<(), Error> {
         ];
 
         exec_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args).map_err(|_| Error::AuthError)?;
-        return Ok(());
+        Ok(())
     } else if unlock_type == 0xFE {
         // non-pending HTLC unlock process
 
@@ -250,7 +250,14 @@ fn auth() -> Result<(), Error> {
         }
 
         let raw_since_value = load_input_since(0, Source::GroupInput)?;
-        let message = load_tx_hash()?;
+        let message = {
+            let tx = load_transaction()?
+                .raw()
+                .as_builder()
+                .cell_deps(Default::default())
+                .build();
+            blake2b_256(tx.as_slice())
+        };
         let mut signature = [0u8; 65];
         let mut pubkey_hash = [0u8; 20];
 
