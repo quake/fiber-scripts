@@ -23,6 +23,6 @@ jobs:
     - name: Prepare
       run: make prepare
     - name: Build
-      run: make build
+      run: scripts/reproducible_build_docker
     - name: Run tests
       run: make test
