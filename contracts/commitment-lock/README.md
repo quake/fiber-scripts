@@ -5,7 +5,7 @@ This is a commitment lock script for ckb fiber network, which implements [daric]
 The lock script args is concatenated by the following fields:
 
 - `pubkey_hash`: 20 bytes, hash result of blake160(x only aggregated public key)
-- `delay_epoch`: 8 bytes, u64 in little endian, must be a relative EpochNumberWithFraction
+- `delay_epoch`: 8 bytes, u64 in little endian, must be a relative [EpochNumberWithFraction](https://github.com/nervosnetwork/ckb/blob/develop/rpc/README.md#type-epochnumberwithfraction)
 - `version`: 8 bytes, u64 in big-endian
 - `htlcs`: 20 bytes, hash result of blake160(pending_htlc_count || N * pending_htlc), optional
 
@@ -30,7 +30,7 @@ For pending HTLC unlock process, the transaction must provide the following fiel
     - `payment_hash`: 20 bytes
     - `remote_htlc_pubkey_hash`: 20 bytes, hash result of blake160(remote_htlc_pubkey)
     - `local_htlc_pubkey_hash`: 20 bytes, hash result of blake160(local_htlc_pubkey)
-    - `htlc_expiry`: 8 bytes, u64 in little endian, must be an absolute timestamp
+    - `htlc_expiry`: 8 bytes, u64 in little endian, must be an absolute timestamp [since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md)
 - `signature`: 65 bytes, the signature of the xxx_pubkey
 - `preimage`: 32 bytes, an optional field to provide the preimage of the payment_hash
 
