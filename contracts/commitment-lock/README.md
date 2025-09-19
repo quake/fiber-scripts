@@ -7,22 +7,22 @@ The lock script args is concatenated by the following fields:
 - `pubkey_hash`: 20 bytes, hash result of blake160(x only aggregated public key)
 - `delay_epoch`: 8 bytes, u64 in little endian, must be a relative [EpochNumberWithFraction](https://github.com/nervosnetwork/ckb/blob/develop/rpc/README.md#type-epochnumberwithfraction)
 - `version`: 8 bytes, u64 in big-endian
-- `htlcs`: 20 bytes, hash result of blake160(pending_htlc_count || N * pending_htlc), optional
+- `settlement_hash`: 20 bytes, hash result of blake160(non_pending_count || N * non_pending || pending_htlc_count || N * pending_htlc)
 
 To unlock this lock, the transaction must provide the following fields in the witness:
 - `empty_witness_args`: 16 bytes, fixed to 0x10000000100000001000000010000000, for compatibility with the xudt
-- `unlock_type`: 1 byte, 0x00 ~ 0xFD for pending HTLC unlock, 0xFE for non-pending HTLC unlock, 0xFF for revocation unlock
+- `unlock_type`: 1 byte, 0x00 ~ 0xFC for pending HTLC unlock, 0xFD and 0xFE for non-pending HTLC unlock, 0xFF for revocation unlock
 
 For revocation unlock process, the transaction must provide the following fields in the witness:
 - `version`: 8 bytes, u64 in big-endian, must be the same or greater than the version in the lock args
 - `pubkey`: 32 bytes, x only aggregated public key
 - `signature`: 64 bytes, aggregated signature
 
-For non-pending HTLC unlock process, the transaction must provide the following fields in the witness:
-- `pubkey`: 32 bytes, x only aggregated public key
-- `signature`: 64 bytes, aggregated signature
-
-For pending HTLC unlock process, the transaction must provide the following fields in the witness:
+For non-pending and pending HTLC unlock process, the transaction must provide the following fields in the witness:
+- `non_pending_count`: 1 byte, 0, 1 or 2
+- `non_pending`: A group of non pending outputs amounts, contains:
+    - `payment_amount`: 16 bytes, u128 in little endian
+    - `pubkey_hash`: 20 bytes, hash result of blake160(pubkey)
 - `pending_htlc_count`: 1 byte, the count of pending HTLCs
 - `pending_htlc`: A group of pending HTLCS, each HTLC is 85 bytes, contains:
     - `htlc_type`: 1 byte, high 7 bits for payment hash type (0000000 for blake2b, 0000001 for sha256), low 1 bit for offered or received type (0 for offered HTLC, 1 for received HTLC)
