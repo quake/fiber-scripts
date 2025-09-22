@@ -38,6 +38,8 @@ pub enum Error {
     MultipleInputs,
     InvalidSince,
     InvalidUnlockType,
+    InvalidWithPreimageFlag,
+    InvalidSettlementCount,
     InvalidExpiry,
     ArgsLenError,
     WitnessLenError,
@@ -93,7 +95,7 @@ enum PaymentHashType {
 struct Htlc<'a>(&'a [u8]);
 
 impl<'a> Htlc<'a> {
-    pub fn htlc_type(&self) -> HtlcType {
+    fn htlc_type(&self) -> HtlcType {
         if self.0[0] & 0b00000001 == 0 {
             HtlcType::Offered
         } else {
@@ -101,7 +103,7 @@ impl<'a> Htlc<'a> {
         }
     }
 
-    pub fn payment_hash_type(&self) -> PaymentHashType {
+    fn payment_hash_type(&self) -> PaymentHashType {
         if (self.0[0] >> 1) & 0b0000001 == 0 {
             PaymentHashType::Blake2b
         } else {
@@ -109,24 +111,44 @@ impl<'a> Htlc<'a> {
         }
     }
 
-    pub fn payment_amount(&self) -> u128 {
+    fn payment_amount(&self) -> u128 {
         u128::from_le_bytes(self.0[1..17].try_into().unwrap())
     }
 
-    pub fn payment_hash(&self) -> &'a [u8] {
+    fn payment_hash(&self) -> &'a [u8] {
         &self.0[17..37]
     }
 
-    pub fn remote_htlc_pubkey_hash(&self) -> &'a [u8] {
-        &self.0[37..57]
+    fn remote_htlc_pubkey_hash(&self) -> [u8; 20] {
+        self.0[37..57].try_into().unwrap()
     }
 
-    pub fn local_htlc_pubkey_hash(&self) -> &'a [u8] {
-        &self.0[57..77]
+    fn local_htlc_pubkey_hash(&self) -> [u8; 20] {
+        self.0[57..77].try_into().unwrap()
     }
 
-    pub fn htlc_expiry(&self) -> u64 {
+    fn htlc_expiry(&self) -> u64 {
         u64::from_le_bytes(self.0[77..85].try_into().unwrap())
+    }
+}
+
+struct Settlement<'a>(&'a [u8]);
+
+impl<'a> Settlement<'a> {
+    fn unlock_type(&self) -> u8 {
+        self.0[0]
+    }
+
+    fn with_preimage(&self) -> bool {
+        self.0[1] == 1
+    }
+
+    fn signature(&self) -> [u8; SIGNATURE_LEN] {
+        self.0[2..2 + SIGNATURE_LEN].try_into().unwrap()
+    }
+
+    fn preimage(&self) -> &[u8] {
+        &self.0[2 + SIGNATURE_LEN..2 + SIGNATURE_LEN + PREIMAGE_LEN]
     }
 }
 
@@ -141,7 +163,7 @@ fn auth() -> Result<(), Error> {
 
     let script = load_script()?;
     let args: Bytes = script.args().unpack();
-    if args.len() != 36 && args.len() != 56 {
+    if args.len() != 56 {
         return Err(Error::ArgsLenError);
     }
 
@@ -153,8 +175,8 @@ fn auth() -> Result<(), Error> {
     {
         return Err(Error::EmptyWitnessArgsError);
     }
-    let unlock_type = witness.remove(0);
-    if unlock_type == 0xFF {
+    let unlocks = witness.remove(0);
+    if unlocks == 0xFF {
         // revocation unlock process
 
         // verify version
@@ -194,62 +216,49 @@ fn auth() -> Result<(), Error> {
 
         exec_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args).map_err(|_| Error::AuthError)?;
         Ok(())
-    } else if unlock_type == 0xFE {
-        // non-pending HTLC unlock process
-
-        let raw_since_value = load_input_since(0, Source::GroupInput)?;
-        let since = Since::new(raw_since_value);
-        let delay_epoch = Since::new(u64::from_le_bytes(args[20..28].try_into().unwrap()));
-        if since >= delay_epoch {
-            // verify signature, we are using the same signature verification logic as open tx, only hash the 1st and 2nd output
-            // TODO we may add a check to ensure the 3rd output cell's lock script is same as the 1st output cell's lock script, to resolve the issue of pending timeout HTLC
-            let to_local_output = load_cell(0, Source::Output)?;
-            let to_local_output_data = load_cell_data(0, Source::Output)?;
-            let to_remote_output = load_cell(1, Source::Output)?;
-            let to_remote_output_data = load_cell_data(1, Source::Output)?;
-            let message = blake2b_256(
-                [
-                    to_local_output.as_slice(),
-                    (to_local_output_data.len() as u32).to_le_bytes().as_ref(),
-                    to_local_output_data.as_slice(),
-                    to_remote_output.as_slice(),
-                    (to_remote_output_data.len() as u32).to_le_bytes().as_ref(),
-                    to_remote_output_data.as_slice(),
-                    &args[0..36],
-                ]
-                .concat(),
-            );
-            let pubkey_hash = &args[0..20];
-
-            // AuthAlgorithmIdSchnorr = 7
-            let algorithm_id_str = CString::new(encode([7u8])).unwrap();
-            let signature_str = CString::new(encode(&witness)).unwrap();
-            let message_str = CString::new(encode(message)).unwrap();
-            let pubkey_hash_str = CString::new(encode(pubkey_hash)).unwrap();
-
-            let args = [
-                algorithm_id_str.as_c_str(),
-                signature_str.as_c_str(),
-                message_str.as_c_str(),
-                pubkey_hash_str.as_c_str(),
-            ];
-
-            exec_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args)
-                .map_err(|_| Error::AuthError)?;
-            return Ok(());
-        } else {
-            return Err(Error::InvalidSince);
-        }
     } else {
-        // pending HTLC unlock process
-        // verify the unlock_htlc out of bound or not
+        // settlement unlock process
+
         let pending_htlc_count = witness[0] as usize;
-        let unlock_htlc = unlock_type as usize;
-        if unlock_htlc >= pending_htlc_count {
-            return Err(Error::InvalidUnlockType);
+        // 1 (pending_htlc_count) + pending_htlc_count * HTLC_SCRIPT_LEN
+        let pending_htlcs_len = 1 + pending_htlc_count * HTLC_SCRIPT_LEN;
+        // settlement_one_pubkey_hash + settlement_one_amount + settlement_two_pubkey_hash + settlement_two_amount
+        let settlement_script_len = pending_htlcs_len + 72;
+        if witness.len() < settlement_script_len {
+            return Err(Error::WitnessLenError);
+        }
+        // verify the selettlement script hash is equal to the script args
+        if blake2b_256(&witness[0..settlement_script_len])[0..20] != args[36..56] {
+            return Err(Error::WitnessHashError);
+        }
+
+        let mut settlements = Vec::new();
+        let mut settlement_htlc_count = 0;
+        let mut i = pending_htlc_count;
+        while witness.len() > i {
+            let unlock_type = witness[pending_htlc_count];
+            if unlock_type >= pending_htlc_count as u8 && unlock_type != 0xFD && unlock_type != 0xFE
+            {
+                return Err(Error::InvalidUnlockType);
+            } else {
+                settlement_htlc_count += 1;
+            }
+            let with_preimage = witness[pending_htlc_count + 1];
+            if with_preimage == 0 {
+                settlements.push(Settlement(&witness[i..i + 2 + SIGNATURE_LEN]));
+                i += 2 + SIGNATURE_LEN;
+            } else if with_preimage == 1 {
+                settlements.push(Settlement(
+                    &witness[i..i + 2 + SIGNATURE_LEN + PREIMAGE_LEN],
+                ));
+                i += 2 + SIGNATURE_LEN + PREIMAGE_LEN;
+            } else {
+                return Err(Error::InvalidWithPreimageFlag);
+            }
         }
 
         let raw_since_value = load_input_since(0, Source::GroupInput)?;
+        let delay_epoch = Since::new(u64::from_le_bytes(args[20..28].try_into().unwrap()));
         let message = {
             let tx = load_transaction()?
                 .raw()
@@ -258,29 +267,6 @@ fn auth() -> Result<(), Error> {
                 .build();
             blake2b_256(tx.as_slice())
         };
-        let mut signature = [0u8; 65];
-        let mut pubkey_hash = [0u8; 20];
-
-        let witness_len = witness.len();
-        let pending_htlcs_len = 1 + pending_htlc_count * HTLC_SCRIPT_LEN;
-        // verify the hash of the pending htlcs part is equal to the script args
-        if blake2b_256(&witness[0..pending_htlcs_len])[0..20] != args[36..56] {
-            return Err(Error::WitnessHashError);
-        }
-        if raw_since_value == 0 {
-            let expected_witness_len = pending_htlcs_len + SIGNATURE_LEN + PREIMAGE_LEN;
-            if witness_len != expected_witness_len {
-                return Err(Error::WitnessLenError);
-            }
-            signature
-                .copy_from_slice(&witness[pending_htlcs_len..pending_htlcs_len + SIGNATURE_LEN]);
-        } else {
-            let expected_witness_len = pending_htlcs_len + SIGNATURE_LEN;
-            if witness_len != expected_witness_len {
-                return Err(Error::WitnessLenError);
-            }
-            signature.copy_from_slice(&witness[pending_htlcs_len..]);
-        }
 
         let mut new_amount = if type_script.is_some() {
             let input_cell_data = load_cell_data(0, Source::GroupInput)?;
@@ -288,17 +274,19 @@ fn auth() -> Result<(), Error> {
         } else {
             load_cell_capacity(0, Source::GroupInput)? as u128
         };
-        let mut new_pending_htlcs: Vec<&[u8]> = Vec::new();
-        let new_pending_htlc_count = [(pending_htlc_count - 1) as u8];
-        new_pending_htlcs.push(&new_pending_htlc_count);
 
-        let delay_epoch = Since::new(u64::from_le_bytes(args[20..28].try_into().unwrap()));
+        let mut new_settlement_script: Vec<&[u8]> = Vec::new();
+        let new_pending_htlc_count = [(pending_htlc_count - settlement_htlc_count) as u8];
+        new_settlement_script.push(&new_pending_htlc_count);
+
+        let mut signatures_to_verify = Vec::new();
+
         for (i, htlc_script) in witness[1..pending_htlcs_len]
             .chunks(HTLC_SCRIPT_LEN)
             .enumerate()
         {
-            let htlc = Htlc(htlc_script);
-            if unlock_htlc == i {
+            if settlements[0].unlock_type() == i as u8 {
+                let htlc = Htlc(htlc_script);
                 match htlc.htlc_type() {
                     HtlcType::Offered => {
                         if raw_since_value == 0 {
@@ -307,7 +295,7 @@ fn auth() -> Result<(), Error> {
                                 return Err(Error::InvalidSince);
                             }
                             // when input since is 0, it means the unlock logic is for remote_htlc pubkey and preimage
-                            let preimage = &witness[pending_htlcs_len + SIGNATURE_LEN..];
+                            let preimage = settlements[0].preimage();
                             if match htlc.payment_hash_type() {
                                 PaymentHashType::Blake2b => {
                                     htlc.payment_hash() != &blake2b_256(preimage)[0..20]
@@ -319,7 +307,10 @@ fn auth() -> Result<(), Error> {
                                 return Err(Error::PreimageError);
                             }
                             new_amount -= htlc.payment_amount();
-                            pubkey_hash.copy_from_slice(htlc.remote_htlc_pubkey_hash());
+                            signatures_to_verify.push((
+                                settlements.remove(0).signature(),
+                                htlc.remote_htlc_pubkey_hash(),
+                            ));
                         } else {
                             // Expiry unlock delay_epoch should be shorter than non-pending unlock and longer than the preimage unlock, we use 2/3 of delay_epoch
                             if !check_input_since(mul(delay_epoch, 2, 3)) {
@@ -330,7 +321,10 @@ fn auth() -> Result<(), Error> {
                             let htlc_expiry = Since::new(htlc.htlc_expiry());
                             if since >= htlc_expiry {
                                 new_amount -= htlc.payment_amount();
-                                pubkey_hash.copy_from_slice(htlc.local_htlc_pubkey_hash());
+                                signatures_to_verify.push((
+                                    settlements.remove(0).signature(),
+                                    htlc.local_htlc_pubkey_hash(),
+                                ));
                             } else {
                                 return Err(Error::InvalidExpiry);
                             }
@@ -355,7 +349,10 @@ fn auth() -> Result<(), Error> {
                                 return Err(Error::PreimageError);
                             }
                             new_amount -= htlc.payment_amount();
-                            pubkey_hash.copy_from_slice(htlc.local_htlc_pubkey_hash());
+                            signatures_to_verify.push((
+                                settlements.remove(0).signature(),
+                                htlc.local_htlc_pubkey_hash(),
+                            ));
                         } else {
                             // Expiry unlock delay_epoch should be shorter than non-pending unlock and longer than the preimage unlock, we use 2/3 of delay_epoch
                             if !check_input_since(mul(delay_epoch, 2, 3)) {
@@ -366,7 +363,10 @@ fn auth() -> Result<(), Error> {
                             let htlc_expiry = Since::new(htlc.htlc_expiry());
                             if since >= htlc_expiry {
                                 new_amount -= htlc.payment_amount();
-                                pubkey_hash.copy_from_slice(htlc.remote_htlc_pubkey_hash());
+                                signatures_to_verify.push((
+                                    settlements.remove(0).signature(),
+                                    htlc.remote_htlc_pubkey_hash(),
+                                ));
                             } else {
                                 return Err(Error::InvalidExpiry);
                             }
@@ -374,72 +374,103 @@ fn auth() -> Result<(), Error> {
                     }
                 }
             } else {
-                new_pending_htlcs.push(htlc_script);
+                new_settlement_script.push(htlc_script);
             }
+        }
+
+        // settlement for one or two parties
+        let zero = [0u8; 16];
+        if settlements.len() == 1 {
+            let settlement = settlements.remove(0);
+            match settlement.unlock_type() {
+                0xFD => {
+                    let settlement_one_pubkey_hash: [u8; 20] = witness
+                        [pending_htlcs_len..pending_htlcs_len + 20]
+                        .try_into()
+                        .unwrap();
+                    let settlement_one_amount = u128::from_le_bytes(
+                        witness[pending_htlcs_len + 20..pending_htlcs_len + 36]
+                            .try_into()
+                            .unwrap(),
+                    );
+                    new_amount -= settlement_one_amount;
+
+                    new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 20]);
+                    new_settlement_script.push(zero.as_slice());
+                    new_settlement_script.push(&args[pending_htlcs_len + 36..]);
+                    signatures_to_verify.push((settlement.signature(), settlement_one_pubkey_hash));
+                }
+                0xFE => {
+                    let settlement_two_pubkey_hash: [u8; 20] = witness
+                        [pending_htlcs_len + 36..pending_htlcs_len + 56]
+                        .try_into()
+                        .unwrap();
+                    let settlement_two_amount = u128::from_le_bytes(
+                        witness[pending_htlcs_len + 56..pending_htlcs_len + 72]
+                            .try_into()
+                            .unwrap(),
+                    );
+                    new_amount -= settlement_two_amount;
+
+                    new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 56]);
+                    new_settlement_script.push(zero.as_slice());
+                    signatures_to_verify.push((settlement.signature(), settlement_two_pubkey_hash));
+                }
+                _ => return Err(Error::InvalidUnlockType),
+            }
+        } else if settlements.len() == 0 {
+            new_settlement_script.push(&witness[pending_htlcs_len..]);
+        } else {
+            return Err(Error::InvalidSettlementCount);
         }
 
         // verify the first output cell's lock script is correct
-        let output_lock = load_cell_lock(0, Source::Output)?;
-        let expected_lock_args = if new_pending_htlcs.len() == 1 {
-            args[0..36].pack()
-        } else {
-            [
+        if new_amount > 0 {
+            let output_lock = load_cell_lock(0, Source::Output)?;
+            let expected_lock_args = [
                 &args[0..36],
-                blake2b_256(new_pending_htlcs.concat())[0..20].as_ref(),
+                blake2b_256(new_settlement_script.concat())[0..20].as_ref(),
             ]
             .concat()
-            .pack()
-        };
-        if output_lock.code_hash() != script.code_hash()
-            || output_lock.hash_type() != script.hash_type()
-            || output_lock.args() != expected_lock_args
-        {
-            return Err(Error::OutputLockError);
-        }
+            .pack();
+            if output_lock.code_hash() != script.code_hash()
+                || output_lock.hash_type() != script.hash_type()
+                || output_lock.args() != expected_lock_args
+            {
+                return Err(Error::OutputLockError);
+            }
 
-        match type_script {
-            Some(udt_script) => {
-                // verify the first output cell's capacity, type script and udt amount are correct
-                let output_capacity = load_cell_capacity(0, Source::Output)?;
-                let input_capacity = load_cell_capacity(0, Source::GroupInput)?;
-                if output_capacity != input_capacity {
-                    return Err(Error::OutputCapacityError);
+            match type_script {
+                Some(udt_script) => {
+                    // verify the first output cell's capacity, type script and udt amount are correct
+                    let output_capacity = load_cell_capacity(0, Source::Output)?;
+                    let input_capacity = load_cell_capacity(0, Source::GroupInput)?;
+                    if output_capacity != input_capacity {
+                        return Err(Error::OutputCapacityError);
+                    }
+
+                    let output_type = load_cell_type(0, Source::Output)?;
+                    if output_type != Some(udt_script) {
+                        return Err(Error::OutputTypeError);
+                    }
+
+                    let output_data = load_cell_data(0, Source::Output)?;
+                    let output_amount = u128::from_le_bytes(output_data[0..16].try_into().unwrap());
+                    if output_amount != new_amount {
+                        return Err(Error::OutputUdtAmountError);
+                    }
                 }
-
-                let output_type = load_cell_type(0, Source::Output)?;
-                if output_type != Some(udt_script) {
-                    return Err(Error::OutputTypeError);
-                }
-
-                let output_data = load_cell_data(0, Source::Output)?;
-                let output_amount = u128::from_le_bytes(output_data[0..16].try_into().unwrap());
-                if output_amount != new_amount {
-                    return Err(Error::OutputUdtAmountError);
+                None => {
+                    // verify the first output cell's capacity is correct
+                    let output_capacity = load_cell_capacity(0, Source::Output)? as u128;
+                    if output_capacity != new_amount {
+                        return Err(Error::OutputCapacityError);
+                    }
                 }
             }
-            None => {
-                // verify the first output cell's capacity is correct
-                let output_capacity = load_cell_capacity(0, Source::Output)? as u128;
-                if output_capacity != new_amount {
-                    return Err(Error::OutputCapacityError);
-                }
-            }
         }
-
         // AuthAlgorithmIdCkb = 0
-        let algorithm_id_str = CString::new(encode([0u8])).unwrap();
-        let signature_str = CString::new(encode(signature)).unwrap();
-        let message_str = CString::new(encode(message)).unwrap();
-        let pubkey_hash_str = CString::new(encode(pubkey_hash)).unwrap();
-
-        let args = [
-            algorithm_id_str.as_c_str(),
-            signature_str.as_c_str(),
-            message_str.as_c_str(),
-            pubkey_hash_str.as_c_str(),
-        ];
-
-        exec_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args).map_err(|_| Error::AuthError)?;
+        // TODO call spawn auth to verify multiple signatures
         Ok(())
     }
 }
