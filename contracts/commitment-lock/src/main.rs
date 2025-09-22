@@ -14,14 +14,9 @@ default_alloc!();
 
 use alloc::{ffi::CString, vec::Vec};
 use ckb_std::{
-    ckb_constants::Source,
-    ckb_types::{bytes::Bytes, core::ScriptHashType, prelude::*},
-    error::SysError,
-    high_level::{
-        QueryIter, exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock,
-        load_cell_type, load_input_since, load_script, load_transaction, load_witness,
-    },
-    since::{EpochNumberWithFraction, LockValue, Since},
+    ckb_constants::Source, ckb_types::{bytes::Bytes, core::ScriptHashType, prelude::*}, debug, error::SysError, high_level::{
+        exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type, load_input_since, load_script, load_transaction, load_witness, QueryIter
+    }, since::{EpochNumberWithFraction, LockValue, Since}
 };
 use hex::encode;
 use sha2::{Digest, Sha256};
@@ -176,7 +171,7 @@ fn auth() -> Result<(), Error> {
         return Err(Error::EmptyWitnessArgsError);
     }
     let unlocks = witness.remove(0);
-    if unlocks == 0xFF {
+    if unlocks == 0x00 {
         // revocation unlock process
 
         // verify version
@@ -218,7 +213,7 @@ fn auth() -> Result<(), Error> {
         Ok(())
     } else {
         // settlement unlock process
-
+        debug!("unlocks: {}", unlocks);
         let pending_htlc_count = witness[0] as usize;
         // 1 (pending_htlc_count) + pending_htlc_count * HTLC_SCRIPT_LEN
         let pending_htlcs_len = 1 + pending_htlc_count * HTLC_SCRIPT_LEN;
@@ -239,6 +234,7 @@ fn auth() -> Result<(), Error> {
             let unlock_type = witness[pending_htlc_count];
             if unlock_type >= pending_htlc_count as u8 && unlock_type != 0xFD && unlock_type != 0xFE
             {
+                debug!("Invalid unlock type 1: {}", unlock_type);
                 return Err(Error::InvalidUnlockType);
             } else {
                 settlement_htlc_count += 1;
@@ -416,7 +412,10 @@ fn auth() -> Result<(), Error> {
                     new_settlement_script.push(zero.as_slice());
                     signatures_to_verify.push((settlement.signature(), settlement_two_pubkey_hash));
                 }
-                _ => return Err(Error::InvalidUnlockType),
+                unlock => {
+                    debug!("Invalid unlock type 2: {}", unlock);
+                    return Err(Error::InvalidUnlockType);
+                }
             }
         } else if settlements.len() == 0 {
             new_settlement_script.push(&witness[pending_htlcs_len..]);
@@ -470,7 +469,23 @@ fn auth() -> Result<(), Error> {
             }
         }
         // AuthAlgorithmIdCkb = 0
-        // TODO call spawn auth to verify multiple signatures
+        for (signature, pubkey_hash) in signatures_to_verify {
+            let algorithm_id_str = CString::new(encode([0u8])).unwrap();
+            let signature_str = CString::new(encode(&signature)).unwrap();
+            let message_str = CString::new(encode(message)).unwrap();
+            let pubkey_hash_str = CString::new(encode(&pubkey_hash)).unwrap();
+
+            let args = [
+                algorithm_id_str.as_c_str(),
+                signature_str.as_c_str(),
+                message_str.as_c_str(),
+                pubkey_hash_str.as_c_str(),
+            ];
+
+            // TODO use spawn_cell
+            exec_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args)
+                .map_err(|_| Error::AuthError)?;
+        }
         Ok(())
     }
 }

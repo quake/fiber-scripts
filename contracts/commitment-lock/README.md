@@ -11,7 +11,7 @@ The lock script args is concatenated by the following fields:
 
 To unlock this lock, the transaction must provide the following fields in the witness:
 - `empty_witness_args`: 16 bytes, fixed to 0x10000000100000001000000010000000, for compatibility with the xudt
-- `unlocks`: 1 byte, 0xFF for revocation unlock, 0x00 ~ 0xFE for settlement unlocks count.
+- `unlocks`: 1 byte, 0x00 for revocation unlock, 0x01 ~ 0xFF for settlement unlocks count.
 
 For revocation unlock process, the transaction must provide the following fields in the witness:
 - `version`: 8 bytes, u64 in big-endian, must be the same or greater than the version in the lock args
