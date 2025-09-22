@@ -1,11 +1,11 @@
 [package]
 name = "tests"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-ckb-testtool = "0.14.0"
-ckb-std = "0.15"
+ckb-testtool = "0.16"
+ckb-std = "0.18"
 serde_json = "1.0"
 secp256k1 = { version = "0.28", features = ["rand-std"] }
 musig2 = "0.0.11"

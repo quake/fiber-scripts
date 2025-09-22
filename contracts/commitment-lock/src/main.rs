@@ -18,8 +18,8 @@ use ckb_std::{
     ckb_types::{bytes::Bytes, core::ScriptHashType, prelude::*},
     error::SysError,
     high_level::{
-        exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type,
-        load_input_since, load_script, load_transaction, load_witness, QueryIter,
+        QueryIter, exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock,
+        load_cell_type, load_input_since, load_script, load_transaction, load_witness,
     },
     since::{EpochNumberWithFraction, LockValue, Since},
 };

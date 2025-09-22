@@ -15,8 +15,8 @@ use musig2::{
     BinaryEncoding, CompactSignature, FirstRound, KeyAggContext, PartialSignature, SecNonceSpices,
 };
 use secp256k1::{
-    rand::{self, RngCore},
     PublicKey, Secp256k1, SecretKey,
+    rand::{self, RngCore},
 };
 use sha2::{Digest, Sha256};
 
@@ -491,10 +491,12 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .as_builder()
         .args(new_args.pack())
         .build();
-    let outputs = vec![CellOutput::new_builder()
-        .capacity((1000 * BYTE_SHANNONS - payment_amount1 as u64).pack())
-        .lock(new_lock_script.clone())
-        .build()];
+    let outputs = vec![
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS - payment_amount1 as u64).pack())
+            .lock(new_lock_script.clone())
+            .build(),
+    ];
     let outputs_data = [Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
@@ -569,10 +571,12 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .since(since.as_u64().pack())
         .build();
     let inputs = vec![input, delay_epoch_input.clone()];
-    let outputs = vec![CellOutput::new_builder()
-        .capacity((1000 * BYTE_SHANNONS - payment_amount1 as u64).pack())
-        .lock(new_lock_script.clone())
-        .build()];
+    let outputs = vec![
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS - payment_amount1 as u64).pack())
+            .lock(new_lock_script.clone())
+            .build(),
+    ];
     let outputs_data = [Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
@@ -667,10 +671,12 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     ]
     .concat();
     let new_lock_script = lock_script.as_builder().args(new_args.pack()).build();
-    let outputs = vec![CellOutput::new_builder()
-        .capacity((1000 * BYTE_SHANNONS - payment_amount2 as u64).pack())
-        .lock(new_lock_script.clone())
-        .build()];
+    let outputs = vec![
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS - payment_amount2 as u64).pack())
+            .lock(new_lock_script.clone())
+            .build(),
+    ];
     let outputs_data = [Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
@@ -716,10 +722,12 @@ fn test_commitment_lock_with_two_pending_htlcs() {
             .since(half_delay_epoch.as_u64().pack())
             .build(),
     ];
-    let outputs = vec![CellOutput::new_builder()
-        .capacity((1000 * BYTE_SHANNONS - payment_amount2 as u64).pack())
-        .lock(new_lock_script.clone())
-        .build()];
+    let outputs = vec![
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS - payment_amount2 as u64).pack())
+            .lock(new_lock_script.clone())
+            .build(),
+    ];
     let outputs_data = [Bytes::new()];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps)
@@ -929,15 +937,19 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .as_builder()
         .args(new_args.pack())
         .build();
-    let outputs = vec![CellOutput::new_builder()
-        .capacity((1000 * BYTE_SHANNONS).pack())
-        .lock(new_lock_script.clone())
-        .type_(Some(type_script.clone()).pack())
-        .build()];
-    let outputs_data: Vec<Bytes> = vec![(total_sudt_amount - payment_amount1)
-        .to_le_bytes()
-        .to_vec()
-        .into()];
+    let outputs = vec![
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(new_lock_script.clone())
+            .type_(Some(type_script.clone()).pack())
+            .build(),
+    ];
+    let outputs_data: Vec<Bytes> = vec![
+        (total_sudt_amount - payment_amount1)
+            .to_le_bytes()
+            .to_vec()
+            .into(),
+    ];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
         .inputs(inputs)
@@ -979,15 +991,19 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         .since(since.as_u64().pack())
         .build();
     let inputs = vec![input, delay_epoch_input.clone()];
-    let outputs = vec![CellOutput::new_builder()
-        .capacity((1000 * BYTE_SHANNONS).pack())
-        .lock(new_lock_script.clone())
-        .type_(Some(type_script.clone()).pack())
-        .build()];
-    let outputs_data: Vec<Bytes> = vec![(total_sudt_amount - payment_amount1)
-        .to_le_bytes()
-        .to_vec()
-        .into()];
+    let outputs = vec![
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(new_lock_script.clone())
+            .type_(Some(type_script.clone()).pack())
+            .build(),
+    ];
+    let outputs_data: Vec<Bytes> = vec![
+        (total_sudt_amount - payment_amount1)
+            .to_le_bytes()
+            .to_vec()
+            .into(),
+    ];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
         .inputs(inputs)
@@ -1045,15 +1061,19 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
     ]
     .concat();
     let new_lock_script = lock_script.as_builder().args(new_args.pack()).build();
-    let outputs = vec![CellOutput::new_builder()
-        .capacity((1000 * BYTE_SHANNONS).pack())
-        .lock(new_lock_script.clone())
-        .type_(Some(type_script.clone()).pack())
-        .build()];
-    let outputs_data: Vec<Bytes> = vec![(total_sudt_amount - payment_amount2)
-        .to_le_bytes()
-        .to_vec()
-        .into()];
+    let outputs = vec![
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(new_lock_script.clone())
+            .type_(Some(type_script.clone()).pack())
+            .build(),
+    ];
+    let outputs_data: Vec<Bytes> = vec![
+        (total_sudt_amount - payment_amount2)
+            .to_le_bytes()
+            .to_vec()
+            .into(),
+    ];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps.clone())
         .inputs(inputs)
@@ -1098,15 +1118,19 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
             .since(half_delay_epoch.as_u64().pack())
             .build(),
     ];
-    let outputs = vec![CellOutput::new_builder()
-        .capacity((1000 * BYTE_SHANNONS).pack())
-        .lock(new_lock_script.clone())
-        .type_(Some(type_script.clone()).pack())
-        .build()];
-    let outputs_data: Vec<Bytes> = vec![(total_sudt_amount - payment_amount2)
-        .to_le_bytes()
-        .to_vec()
-        .into()];
+    let outputs = vec![
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(new_lock_script.clone())
+            .type_(Some(type_script.clone()).pack())
+            .build(),
+    ];
+    let outputs_data: Vec<Bytes> = vec![
+        (total_sudt_amount - payment_amount2)
+            .to_le_bytes()
+            .to_vec()
+            .into(),
+    ];
     let tx = TransactionBuilder::default()
         .cell_deps(cell_deps)
         .inputs(inputs)
