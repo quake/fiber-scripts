@@ -364,7 +364,7 @@ fn test_commitment_lock_no_pending_htlcs() {
         EMPTY_WITNESS_ARGS.to_vec(),
         vec![0x01],
         settlement_script.clone(),
-        vec![0xFD],
+        vec![0xFD, 0x00], // unlock with local settlement key, no preimage
         signature.clone(),
     ]
     .concat();

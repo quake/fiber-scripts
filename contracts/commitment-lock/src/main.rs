@@ -229,17 +229,18 @@ fn auth() -> Result<(), Error> {
 
         let mut settlements = Vec::new();
         let mut settlement_htlc_count = 0;
-        let mut i = pending_htlc_count;
+        let mut i = settlement_script_len;
         while witness.len() > i {
-            let unlock_type = witness[pending_htlc_count];
+            debug!("i: {}, len: {}", i, witness.len());
+            let unlock_type = witness[i];
             if unlock_type >= pending_htlc_count as u8 && unlock_type != 0xFD && unlock_type != 0xFE
             {
-                debug!("Invalid unlock type 1: {}", unlock_type);
+                debug!("Invalid unlock type 1: {:?}", witness);
                 return Err(Error::InvalidUnlockType);
-            } else {
+            } else if unlock_type < pending_htlc_count as u8 {
                 settlement_htlc_count += 1;
             }
-            let with_preimage = witness[pending_htlc_count + 1];
+            let with_preimage = witness[i + 1];
             if with_preimage == 0 {
                 settlements.push(Settlement(&witness[i..i + 2 + SIGNATURE_LEN]));
                 i += 2 + SIGNATURE_LEN;
@@ -249,6 +250,7 @@ fn auth() -> Result<(), Error> {
                 ));
                 i += 2 + SIGNATURE_LEN + PREIMAGE_LEN;
             } else {
+                debug!("Invalid with_preimage flag: {}", with_preimage);
                 return Err(Error::InvalidWithPreimageFlag);
             }
         }
