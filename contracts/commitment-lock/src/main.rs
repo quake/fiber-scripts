@@ -14,9 +14,16 @@ default_alloc!();
 
 use alloc::{ffi::CString, vec::Vec};
 use ckb_std::{
-    ckb_constants::Source, ckb_types::{bytes::Bytes, core::ScriptHashType, prelude::*}, debug, error::SysError, high_level::{
-        exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type, load_input_since, load_script, load_transaction, load_witness, QueryIter
-    }, since::{EpochNumberWithFraction, LockValue, Since}
+    ckb_constants::Source,
+    ckb_types::{bytes::Bytes, core::ScriptHashType, prelude::*},
+    debug,
+    error::SysError,
+    high_level::{
+        QueryIter, exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock,
+        load_cell_type, load_input_since, load_script, load_transaction, load_witness,
+    },
+    since::{EpochNumberWithFraction, LockValue, Since},
+    syscalls::debug,
 };
 use hex::encode;
 use sha2::{Digest, Sha256};
@@ -170,8 +177,8 @@ fn auth() -> Result<(), Error> {
     {
         return Err(Error::EmptyWitnessArgsError);
     }
-    let unlocks = witness.remove(0);
-    if unlocks == 0x00 {
+    let unlock_count = witness.remove(0);
+    if unlock_count == 0x00 {
         // revocation unlock process
 
         // verify version
@@ -213,7 +220,7 @@ fn auth() -> Result<(), Error> {
         Ok(())
     } else {
         // settlement unlock process
-        debug!("unlocks: {}", unlocks);
+        debug!("unlock_count: {}", unlock_count);
         let pending_htlc_count = witness[0] as usize;
         // 1 (pending_htlc_count) + pending_htlc_count * HTLC_SCRIPT_LEN
         let pending_htlcs_len = 1 + pending_htlc_count * HTLC_SCRIPT_LEN;
@@ -395,7 +402,8 @@ fn auth() -> Result<(), Error> {
 
                     new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 20]);
                     new_settlement_script.push(zero.as_slice());
-                    new_settlement_script.push(&args[pending_htlcs_len + 36..]);
+                    new_settlement_script
+                        .push(&witness[pending_htlcs_len + 36..pending_htlcs_len + 72]);
                     signatures_to_verify.push((settlement.signature(), settlement_one_pubkey_hash));
                 }
                 0xFE => {
@@ -425,7 +433,10 @@ fn auth() -> Result<(), Error> {
             return Err(Error::InvalidSettlementCount);
         }
 
-        // verify the first output cell's lock script is correct
+        debug!("new_settlement_script: {:x?}", new_settlement_script);
+        debug!("new_amount: {}", new_amount);
+
+        // verify the first output cell's lock script and capacity are correct
         if new_amount > 0 {
             let output_lock = load_cell_lock(0, Source::Output)?;
             let expected_lock_args = [
