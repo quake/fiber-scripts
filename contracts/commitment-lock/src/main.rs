@@ -23,7 +23,6 @@ use ckb_std::{
         load_cell_type, load_input_since, load_script, load_transaction, load_witness,
     },
     since::{EpochNumberWithFraction, LockValue, Since},
-    syscalls::debug,
 };
 use hex::encode;
 use sha2::{Digest, Sha256};
