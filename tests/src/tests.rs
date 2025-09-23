@@ -762,7 +762,11 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         &blake2b_256(new_settlement_script)[0..20],
     ]
     .concat();
-    let new_lock_script = lock_script.as_builder().args(new_args.pack()).build();
+    let new_lock_script = lock_script
+        .clone()
+        .as_builder()
+        .args(new_args.pack())
+        .build();
     let outputs = vec![
         CellOutput::new_builder()
             .capacity(((local_amount + remote_amount + payment_amount1) as u64).pack())
@@ -823,7 +827,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     ];
     let outputs_data = [Bytes::new()];
     let tx = TransactionBuilder::default()
-        .cell_deps(cell_deps)
+        .cell_deps(cell_deps.clone())
         .inputs(inputs)
         .outputs(outputs)
         .outputs_data(outputs_data.pack())
@@ -887,6 +891,155 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .expect_err("empty preimage should fail");
     println!("error: {}", error);
     assert!(error.to_string().contains("#21")); // PreimageError
+
+    // test with settlement unlock logic (local settlement key)
+    let new_two_party_settlement = [
+        blake2b_256(local_settlement_key.1.serialize())[0..20].to_vec(),
+        0u128.to_le_bytes().to_vec(),
+        blake2b_256(remote_settlement_key.1.serialize())[0..20].to_vec(),
+        remote_amount.to_le_bytes().to_vec(),
+    ]
+    .concat();
+
+    let new_settlement_script = [pending_htlcs.clone(), new_two_party_settlement.clone()].concat();
+    let new_args = [
+        &pubkey_hash[0..20],
+        delay_epoch.as_u64().to_le_bytes().as_slice(),
+        commitment_tx_version.to_be_bytes().as_slice(),
+        &blake2b_256(&new_settlement_script)[0..20],
+    ]
+    .concat();
+
+    let new_lock_script = lock_script
+        .clone()
+        .as_builder()
+        .args(new_args.pack())
+        .build();
+    let outputs = vec![
+        CellOutput::new_builder()
+            .capacity(((remote_amount + payment_amount1 + payment_amount2) as u64).pack())
+            .lock(new_lock_script.clone())
+            .build(),
+    ];
+
+    let outputs_data = [Bytes::new()];
+    let input = CellInput::new_builder()
+        .previous_output(input_out_point.clone())
+        .build();
+
+    let tx = TransactionBuilder::default()
+        .cell_deps(cell_deps.clone())
+        .input(input)
+        .outputs(outputs.clone())
+        .outputs_data(outputs_data.pack())
+        .build();
+
+    // sign with local_settlement_key
+    let message: [u8; 32] = compute_tx_message(&tx);
+
+    let signature = local_settlement_key
+        .0
+        .sign_recoverable(&message.into())
+        .unwrap()
+        .serialize();
+    let witness = [
+        EMPTY_WITNESS_ARGS.to_vec(),
+        vec![0x01],
+        settlement_script.clone(),
+        vec![0xFD, 0x00], // unlock with local settlement key,
+        signature.clone(),
+    ]
+    .concat();
+
+    let success_tx = tx.as_advanced_builder().witness(witness.pack()).build();
+    let cycles = context
+        .verify_tx(&success_tx, MAX_CYCLES)
+        .expect("pass verification");
+    println!("consume cycles: {}", cycles);
+
+    // test with batch unlock logic (local settlement key + local_htlc_key1)
+    let new_pending_htlcs = [
+        [1].to_vec(),
+        [0b00000011].to_vec(),
+        payment_amount2.to_le_bytes().to_vec(),
+        Sha256::digest(preimage2)[0..20].to_vec(),
+        blake2b_256(remote_htlc_key2.1.serialize())[0..20].to_vec(),
+        blake2b_256(local_htlc_key2.1.serialize())[0..20].to_vec(),
+        expiry2.as_u64().to_le_bytes().to_vec(),
+    ]
+    .concat();
+
+    let new_settlement_script = [new_pending_htlcs.clone(), new_two_party_settlement].concat();
+    let new_args = [
+        &pubkey_hash[0..20],
+        delay_epoch.as_u64().to_le_bytes().as_slice(),
+        commitment_tx_version.to_be_bytes().as_slice(),
+        &blake2b_256(&new_settlement_script)[0..20],
+    ]
+    .concat();
+
+    let new_lock_script = lock_script
+        .clone()
+        .as_builder()
+        .args(new_args.pack())
+        .build();
+
+    let outputs = vec![
+        CellOutput::new_builder()
+            .capacity(((remote_amount + payment_amount2) as u64).pack())
+            .lock(new_lock_script.clone())
+            .build(),
+    ];
+    let outputs_data = [Bytes::new()];
+    let input = CellInput::new_builder()
+        .previous_output(input_out_point.clone())
+        .build();
+    let inputs = vec![
+        input,
+        delay_epoch_input
+            .clone()
+            .as_builder()
+            .since(half_delay_epoch.as_u64().pack())
+            .build(),
+    ];
+    let tx = TransactionBuilder::default()
+        .cell_deps(cell_deps.clone())
+        .inputs(inputs)
+        .outputs(outputs.clone())
+        .outputs_data(outputs_data.pack())
+        .build();
+    // sign with local_settlement_key and local_htlc_key1
+    let message: [u8; 32] = compute_tx_message(&tx);
+
+    let signature1 = local_htlc_key1
+        .0
+        .sign_recoverable(&message.into())
+        .unwrap()
+        .serialize();
+
+    let signature2 = local_settlement_key
+        .0
+        .sign_recoverable(&message.into())
+        .unwrap()
+        .serialize();
+
+    let witness = [
+        EMPTY_WITNESS_ARGS.to_vec(),
+        vec![0x02],
+        settlement_script.clone(),
+        [0x00, 0x01].to_vec(), // unlock with local_htlc_key1 and preimage
+        signature1.clone(),
+        preimage1.to_vec(),
+        [0xFD, 0x00].to_vec(), // unlock with local settlement
+        signature2.clone(),
+    ]
+    .concat();
+
+    let success_tx = tx.as_advanced_builder().witness(witness.pack()).build();
+    let cycles = context
+        .verify_tx(&success_tx, MAX_CYCLES)
+        .expect("pass verification");
+    println!("consume cycles: {}", cycles);
 }
 
 #[test]
