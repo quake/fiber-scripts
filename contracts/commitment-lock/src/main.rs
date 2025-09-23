@@ -150,7 +150,11 @@ impl<'a> Settlement<'a> {
     }
 
     fn preimage(&self) -> &[u8] {
-        &self.0[2 + SIGNATURE_LEN..2 + SIGNATURE_LEN + PREIMAGE_LEN]
+        if self.with_preimage() {
+            &self.0[2 + SIGNATURE_LEN..2 + SIGNATURE_LEN + PREIMAGE_LEN]
+        } else {
+            &[]
+        }
     }
 }
 
@@ -222,6 +226,8 @@ fn auth() -> Result<(), Error> {
         // settlement unlock process
         debug!("unlock_count: {}", unlock_count);
         let pending_htlc_count = witness[0] as usize;
+        debug!("pending_htlc_count: {}", pending_htlc_count);
+        debug!("witness: {:x?}", witness);
         // 1 (pending_htlc_count) + pending_htlc_count * HTLC_SCRIPT_LEN
         let pending_htlcs_len = 1 + pending_htlc_count * HTLC_SCRIPT_LEN;
         // settlement_one_pubkey_hash + settlement_one_amount + settlement_two_pubkey_hash + settlement_two_amount
@@ -262,6 +268,10 @@ fn auth() -> Result<(), Error> {
             }
         }
 
+        if settlements.len() == 0 {
+            return Err(Error::InvalidSettlementCount);
+        }
+
         let raw_since_value = load_input_since(0, Source::GroupInput)?;
         let delay_epoch = Since::new(u64::from_le_bytes(args[20..28].try_into().unwrap()));
         let message = {
@@ -290,7 +300,7 @@ fn auth() -> Result<(), Error> {
             .chunks(HTLC_SCRIPT_LEN)
             .enumerate()
         {
-            if settlements[0].unlock_type() == i as u8 {
+            if settlements.len() > 0 && settlements[0].unlock_type() == i as u8 {
                 let htlc = Htlc(htlc_script);
                 match htlc.htlc_type() {
                     HtlcType::Offered => {
@@ -342,7 +352,7 @@ fn auth() -> Result<(), Error> {
                                 return Err(Error::InvalidSince);
                             }
                             // when input since is 0, it means the unlock logic is for local_htlc pubkey and preimage
-                            let preimage = &witness[pending_htlcs_len + SIGNATURE_LEN..];
+                            let preimage = settlements[0].preimage();
                             if match htlc.payment_hash_type() {
                                 PaymentHashType::Blake2b => {
                                     htlc.payment_hash() != &blake2b_256(preimage)[0..20]
@@ -428,7 +438,7 @@ fn auth() -> Result<(), Error> {
                 }
             }
         } else if settlements.len() == 0 {
-            new_settlement_script.push(&witness[pending_htlcs_len..]);
+            new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 72]);
         } else {
             return Err(Error::InvalidSettlementCount);
         }

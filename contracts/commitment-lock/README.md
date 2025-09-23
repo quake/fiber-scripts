@@ -33,7 +33,7 @@ For settlement unlock process, the transaction must provide the following fields
 - `settlement_two_amount`: 16 bytes, u128 in little endian
 
 - `unlocks`: A group of settlement unlock signature and preimage
-    - `unlock_type`: 0x00 ~ 0xFC for pending htlc group, 0xFD for settlement one, 0xFE for settlement two.
+    - `unlock_type`: 0x00 ~ 0xFC for pending htlc group index, 0xFD for settlement one, 0xFE for settlement two.
     - `with_preimage`: 0x00 without preimage, 0x01 with preimage
     - `signature`: 65 bytes, the signature of the xxx_pubkey
     - `preimage`: 32 bytes, an optional field to provide the preimage of the payment_hash
