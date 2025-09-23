@@ -135,7 +135,7 @@ impl<'a> Htlc<'a> {
 
 struct Settlement<'a>(&'a [u8]);
 
-impl<'a> Settlement<'a> {
+impl Settlement<'_> {
     fn unlock_type(&self) -> u8 {
         self.0[0]
     }
@@ -267,7 +267,7 @@ fn auth() -> Result<(), Error> {
             }
         }
 
-        if settlements.len() == 0 {
+        if settlements.is_empty() {
             return Err(Error::InvalidSettlementCount);
         }
 
@@ -299,7 +299,7 @@ fn auth() -> Result<(), Error> {
             .chunks(HTLC_SCRIPT_LEN)
             .enumerate()
         {
-            if settlements.len() > 0 && settlements[0].unlock_type() == i as u8 {
+            if !settlements.is_empty() && settlements[0].unlock_type() == i as u8 {
                 let htlc = Htlc(htlc_script);
                 match htlc.htlc_type() {
                     HtlcType::Offered => {
@@ -436,7 +436,7 @@ fn auth() -> Result<(), Error> {
                     return Err(Error::InvalidUnlockType);
                 }
             }
-        } else if settlements.len() == 0 {
+        } else if settlements.is_empty() {
             new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 72]);
         } else {
             return Err(Error::InvalidSettlementCount);
@@ -493,9 +493,9 @@ fn auth() -> Result<(), Error> {
         // AuthAlgorithmIdCkb = 0
         for (signature, pubkey_hash) in signatures_to_verify {
             let algorithm_id_str = CString::new(encode([0u8])).unwrap();
-            let signature_str = CString::new(encode(&signature)).unwrap();
+            let signature_str = CString::new(encode(signature)).unwrap();
             let message_str = CString::new(encode(message)).unwrap();
-            let pubkey_hash_str = CString::new(encode(&pubkey_hash)).unwrap();
+            let pubkey_hash_str = CString::new(encode(pubkey_hash)).unwrap();
 
             let args = [
                 algorithm_id_str.as_c_str(),
