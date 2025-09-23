@@ -957,7 +957,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .expect("pass verification");
     println!("consume cycles: {}", cycles);
 
-    // test with batch unlock logic (local settlement key + local_htlc_key1)
+    // test with batch unlock logic (remote settlement key + remote htlc key1)
     let new_pending_htlcs = [
         [1].to_vec(),
         [0b00000011].to_vec(),
@@ -966,6 +966,14 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         blake2b_256(remote_htlc_key2.1.serialize())[0..20].to_vec(),
         blake2b_256(local_htlc_key2.1.serialize())[0..20].to_vec(),
         expiry2.as_u64().to_le_bytes().to_vec(),
+    ]
+    .concat();
+
+    let new_two_party_settlement = [
+        blake2b_256(local_settlement_key.1.serialize())[0..20].to_vec(),
+        local_amount.to_le_bytes().to_vec(),
+        blake2b_256(remote_settlement_key.1.serialize())[0..20].to_vec(),
+        0u128.to_le_bytes().to_vec(),
     ]
     .concat();
 
@@ -986,7 +994,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
 
     let outputs = vec![
         CellOutput::new_builder()
-            .capacity(((remote_amount + payment_amount2) as u64).pack())
+            .capacity(((local_amount + payment_amount2) as u64).pack())
             .lock(new_lock_script.clone())
             .build(),
     ];
@@ -1008,16 +1016,16 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .outputs(outputs.clone())
         .outputs_data(outputs_data.pack())
         .build();
-    // sign with local_settlement_key and local_htlc_key1
+    // sign with remote_settlement_key and remote_htlc_key1
     let message: [u8; 32] = compute_tx_message(&tx);
 
-    let signature1 = local_htlc_key1
+    let signature1 = remote_htlc_key1
         .0
         .sign_recoverable(&message.into())
         .unwrap()
         .serialize();
 
-    let signature2 = local_settlement_key
+    let signature2 = remote_settlement_key
         .0
         .sign_recoverable(&message.into())
         .unwrap()
@@ -1027,10 +1035,10 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         EMPTY_WITNESS_ARGS.to_vec(),
         vec![0x02],
         settlement_script.clone(),
-        [0x00, 0x01].to_vec(), // unlock with local_htlc_key1 and preimage
+        [0x00, 0x01].to_vec(), // unlock with remote_htlc_key1 and preimage
         signature1.clone(),
         preimage1.to_vec(),
-        [0xFD, 0x00].to_vec(), // unlock with local settlement
+        [0xFE, 0x00].to_vec(), // unlock with remote settlement
         signature2.clone(),
     ]
     .concat();
