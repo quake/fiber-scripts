@@ -2,6 +2,7 @@
 
 This is a commitment lock script for ckb fiber network, which implements [daric] protocol.
 
+## Lock Script Args and Witness Structure
 The lock script args is concatenated by the following fields:
 
 - `pubkey_hash`: 20 bytes, hash result of blake160(x only aggregated public key)
@@ -37,6 +38,67 @@ For settlement unlock process, the transaction must provide the following fields
     - `with_preimage`: 0x00 without preimage, 0x01 with preimage
     - `signature`: 65 bytes, the signature of the xxx_pubkey
     - `preimage`: 32 bytes, an optional field to provide the preimage of the payment_hash
+
+## Settlement Unlock Process and New Lock Script Args Generation
+
+During the settlement unlock process, when HTLCs are settled or parties claim their funds, a new output cell with updated lock script args is generated. The new lock script args follow the same structure but with updated `settlement_hash`:
+
+### New Settlement Script Generation
+
+The new settlement script is constructed by:
+
+1. **Updated pending HTLCs**: Remove settled HTLCs from the original list
+   - `new_pending_htlc_count`: Decremented count after settling HTLCs
+   - Remaining unsettled HTLCs in the same 85-byte format
+
+2. **Updated settlement amounts**: Adjust party amounts based on settlements
+   - For local settlement (unlock_type = 0xFD): Set settlement_one_amount to 0
+   - For remote settlement (unlock_type = 0xFE): Set settlement_two_amount to 0
+   - For HTLC settlements: Deduct payment amounts from total available funds
+
+### New Lock Script Args Construction
+
+The new lock script args are generated as:
+```
+new_args = [
+    pubkey_hash,           // Same as original (20 bytes)
+    delay_epoch,           // Same as original (8 bytes)
+    version,               // Same as original (8 bytes)
+    new_settlement_hash    // Updated hash (20 bytes)
+]
+```
+
+Where `new_settlement_hash = blake2b_256(new_settlement_script)[0..20]`
+
+### Examples from Tests
+
+1. **Local Settlement**: When local party settles, their settlement amount becomes 0:
+   ```rust
+   new_settlement_script = [
+       new_pending_htlc_count,
+       remaining_htlcs...,
+       local_pubkey_hash,
+       0u128.to_le_bytes(),     // Local amount set to 0
+       remote_pubkey_hash,
+       remaining_remote_amount.to_le_bytes()
+   ]
+   ```
+
+2. **HTLC Settlement**: When HTLCs are settled, they're removed from pending list:
+   ```rust
+   new_settlement_script = [
+       (original_count - settled_count),
+       unsettled_htlcs...,
+       settlement_party_data...
+   ]
+   ```
+
+3. **Batch Settlement**: Multiple HTLCs and party settlements can be processed together, with all changes reflected in the new settlement script.
+
+The verification logic ensures that:
+- The new lock script uses the same code_hash and hash_type
+- The new args match the expected format with updated settlement_hash
+- Output capacity/UDT amount reflects the settled amounts correctly
 
 To know more about the transaction building process, please refer to the `test_commitment_lock_*` unit test.
 
