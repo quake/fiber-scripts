@@ -398,6 +398,10 @@ fn auth() -> Result<(), Error> {
             let settlement = settlements.remove(0);
             match settlement.unlock_type() {
                 0xFD => {
+                    // local settlement should wait for delay_epoch
+                    if !check_input_since(delay_epoch) {
+                        return Err(Error::InvalidSince);
+                    }
                     let settlement_one_pubkey_hash: [u8; 20] = witness
                         [pending_htlcs_len..pending_htlcs_len + 20]
                         .try_into()
@@ -416,6 +420,10 @@ fn auth() -> Result<(), Error> {
                     signatures_to_verify.push((settlement.signature(), settlement_one_pubkey_hash));
                 }
                 0xFE => {
+                    // remote settlement should wait for delay_epoch
+                    if !check_input_since(delay_epoch) {
+                        return Err(Error::InvalidSince);
+                    }
                     let settlement_two_pubkey_hash: [u8; 20] = witness
                         [pending_htlcs_len + 36..pending_htlcs_len + 56]
                         .try_into()
