@@ -19,10 +19,9 @@ use ckb_std::{
     debug,
     error::SysError,
     high_level::{
-        QueryIter, exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock,
-        load_cell_type, load_input_since, load_script, load_transaction, load_witness,
+        exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type, load_input_since, load_script, load_transaction, load_witness, spawn_cell, QueryIter
     },
-    since::{EpochNumberWithFraction, LockValue, Since},
+    since::{EpochNumberWithFraction, LockValue, Since}, syscalls::wait,
 };
 use hex::encode;
 use sha2::{Digest, Sha256};
@@ -512,9 +511,13 @@ fn auth() -> Result<(), Error> {
                 pubkey_hash_str.as_c_str(),
             ];
 
-            // TODO use spawn_cell
-            exec_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args)
+            let pid = spawn_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args, &[])
                 .map_err(|_| Error::AuthError)?;
+            let result = wait(pid).map_err(|_| Error::AuthError)?;
+            debug!("auth result: {}", result);
+            if result != 0 {
+                return Err(Error::AuthError);
+            }
         }
         Ok(())
     }
