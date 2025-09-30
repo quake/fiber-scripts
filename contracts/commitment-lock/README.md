@@ -34,7 +34,7 @@ For settlement unlock process, the transaction must provide the following fields
 - `settlement_local_amount`: 16 bytes, u128 in little endian
 
 - `unlocks`: A group of settlement unlock signature and preimage
-    - `unlock_type`: 0x00 ~ 0xFC for pending htlc group index, 0xFD for settlement local, 0xFE for settlement remote.
+    - `unlock_type`: 0x00 ~ 0xFD for pending htlc group index, 0xFE for settlement remote, 0xFF for settlement local.
     - `with_preimage`: 0x00 without preimage, 0x01 with preimage
     - `signature`: 65 bytes, the signature of the xxx_pubkey
     - `preimage`: 32 bytes, an optional field to provide the preimage of the payment_hash
@@ -52,8 +52,8 @@ The new settlement script is constructed by:
    - Remaining unsettled HTLCs in the same 85-byte format
 
 2. **Updated settlement amounts**: Adjust party amounts based on settlements
-   - For local settlement (unlock_type = 0xFD): Set settlement_remote_amount to 0
-   - For remote settlement (unlock_type = 0xFE): Set settlement_local_amount to 0
+   - For remote settlement (unlock_type = 0xFE): Set settlement_local_amount to 0 and pubkey hash to 20 bytes zeros
+   - For local settlement (unlock_type = 0xFF): Set settlement_remote_amount to 0 and pubkey hash to 20 bytes zeros
    - For HTLC settlements: Deduct payment amounts from total available funds
 
 ### New Lock Script Args Construction
@@ -72,15 +72,15 @@ Where `new_settlement_hash = blake2b_256(new_settlement_script)[0..20]`
 
 ### Examples from Tests
 
-1. **Local Settlement**: When local party settles, their settlement amount becomes 0:
+1. **Local Settlement**: When local party settles, their settlement amount becomes 0 and pubkey hash is updated to 20 bytes zeros:
    ```rust
    new_settlement_script = [
        new_pending_htlc_count,
        remaining_htlcs...,
-       local_pubkey_hash,
-       0u128.to_le_bytes(),     // Local amount set to 0
        remote_pubkey_hash,
-       remaining_remote_amount.to_le_bytes()
+       remaining_remote_amount.to_le_bytes(),
+       [0u8; 20],               // Local pubkey hash set to 20 bytes zeros
+       0u128.to_le_bytes(),     // Local amount set to 0
    ]
    ```
 

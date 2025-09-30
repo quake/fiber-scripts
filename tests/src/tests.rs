@@ -215,17 +215,17 @@ fn test_commitment_lock_no_pending_htlcs() {
     let commitment_tx_version = 42u64;
 
     let mut generator = Generator::new();
-    let local_settlement_key = generator.gen_keypair();
     let remote_settlement_key = generator.gen_keypair();
-    let local_amount = (600 * BYTE_SHANNONS) as u128;
     let remote_amount = (400 * BYTE_SHANNONS) as u128;
+    let local_settlement_key = generator.gen_keypair();
+    let local_amount = (600 * BYTE_SHANNONS) as u128;
 
     let settlement_script = [
         [0].to_vec(),
-        blake2b_256(local_settlement_key.1.serialize())[0..20].to_vec(),
-        local_amount.to_le_bytes().to_vec(),
         blake2b_256(remote_settlement_key.1.serialize())[0..20].to_vec(),
         remote_amount.to_le_bytes().to_vec(),
+        blake2b_256(local_settlement_key.1.serialize())[0..20].to_vec(),
+        local_amount.to_le_bytes().to_vec(),
     ]
     .concat();
 
@@ -327,10 +327,9 @@ fn test_commitment_lock_no_pending_htlcs() {
     // test with settlement unlock logic (local settlement key)
     let new_settlement_script = [
         [0].to_vec(),
-        blake2b_256(local_settlement_key.1.serialize())[0..20].to_vec(),
-        0u128.to_le_bytes().to_vec(),
         blake2b_256(remote_settlement_key.1.serialize())[0..20].to_vec(),
         remote_amount.to_le_bytes().to_vec(),
+        [0u8; 36].to_vec(),
     ]
     .concat();
 
@@ -390,7 +389,7 @@ fn test_commitment_lock_no_pending_htlcs() {
         EMPTY_WITNESS_ARGS.to_vec(),
         vec![0x01],
         settlement_script.clone(),
-        vec![0xFD, 0x00], // unlock with local settlement key, no preimage
+        vec![0xFF, 0x00], // unlock with local settlement key, no preimage
         signature.clone(),
     ]
     .concat();
@@ -469,10 +468,10 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     let commitment_tx_version = 42u64;
 
     let mut generator = Generator::new();
-    let local_settlement_key = generator.gen_keypair();
     let remote_settlement_key = generator.gen_keypair();
-    let local_amount = (600 * BYTE_SHANNONS) as u128;
     let remote_amount = (400 * BYTE_SHANNONS) as u128;
+    let local_settlement_key = generator.gen_keypair();
+    let local_amount = (600 * BYTE_SHANNONS) as u128;
 
     let remote_htlc_key1 = generator.gen_keypair();
     let remote_htlc_key2 = generator.gen_keypair();
@@ -505,10 +504,10 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     .concat();
 
     let two_party_settlement = [
-        blake2b_256(local_settlement_key.1.serialize())[0..20].to_vec(),
-        local_amount.to_le_bytes().to_vec(),
         blake2b_256(remote_settlement_key.1.serialize())[0..20].to_vec(),
         remote_amount.to_le_bytes().to_vec(),
+        blake2b_256(local_settlement_key.1.serialize())[0..20].to_vec(),
+        local_amount.to_le_bytes().to_vec(),
     ]
     .concat();
 
@@ -917,12 +916,11 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     println!("error: {}", error);
     assert!(error.to_string().contains("#21")); // PreimageError
 
-    // test with settlement unlock logic (local settlement key)
+    // test with settlement unlock logic (remote settlement key)
     let new_two_party_settlement = [
+        [0u8; 36].to_vec(),
         blake2b_256(local_settlement_key.1.serialize())[0..20].to_vec(),
-        0u128.to_le_bytes().to_vec(),
-        blake2b_256(remote_settlement_key.1.serialize())[0..20].to_vec(),
-        remote_amount.to_le_bytes().to_vec(),
+        local_amount.to_le_bytes().to_vec(),
     ]
     .concat();
 
@@ -942,7 +940,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .build();
     let outputs = vec![
         CellOutput::new_builder()
-            .capacity(((remote_amount + payment_amount1 + payment_amount2) as u64).pack())
+            .capacity(((local_amount + payment_amount1 + payment_amount2) as u64).pack())
             .lock(new_lock_script.clone())
             .build(),
     ];
@@ -967,10 +965,10 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .outputs_data(outputs_data.pack())
         .build();
 
-    // sign with local_settlement_key
+    // sign with remote_settlement_key
     let message: [u8; 32] = compute_tx_message(&tx);
 
-    let signature = local_settlement_key
+    let signature = remote_settlement_key
         .0
         .sign_recoverable(&message.into())
         .unwrap()
@@ -979,7 +977,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         EMPTY_WITNESS_ARGS.to_vec(),
         vec![0x01],
         settlement_script.clone(),
-        vec![0xFD, 0x00], // unlock with local settlement key,
+        vec![0xFE, 0x00], // unlock with remote settlement key,
         signature.clone(),
     ]
     .concat();
@@ -1003,10 +1001,9 @@ fn test_commitment_lock_with_two_pending_htlcs() {
     .concat();
 
     let new_two_party_settlement = [
+        [0u8; 36].to_vec(),
         blake2b_256(local_settlement_key.1.serialize())[0..20].to_vec(),
         local_amount.to_le_bytes().to_vec(),
-        blake2b_256(remote_settlement_key.1.serialize())[0..20].to_vec(),
-        0u128.to_le_bytes().to_vec(),
     ]
     .concat();
 
@@ -1106,10 +1103,10 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
     let commitment_tx_version = 42u64;
 
     let mut generator = Generator::new();
-    let local_settlement_key = generator.gen_keypair();
     let remote_settlement_key = generator.gen_keypair();
-    let local_amount = 11111111111111111111u128;
     let remote_amount = 22222222222222222222u128;
+    let local_settlement_key = generator.gen_keypair();
+    let local_amount = 11111111111111111111u128;
 
     let remote_htlc_key1 = generator.gen_keypair();
     let remote_htlc_key2 = generator.gen_keypair();

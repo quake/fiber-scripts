@@ -230,7 +230,7 @@ fn auth() -> Result<(), Error> {
         debug!("witness: {:x?}", witness);
         // 1 (pending_htlc_count) + pending_htlc_count * HTLC_SCRIPT_LEN
         let pending_htlcs_len = 1 + pending_htlc_count * HTLC_SCRIPT_LEN;
-        // settlement_one_pubkey_hash + settlement_one_amount + settlement_two_pubkey_hash + settlement_two_amount
+        // settlement_remote_pubkey_hash + settlement_remote_amount + settlement_local_pubkey_hash + settlement_local_amount
         let settlement_script_len = pending_htlcs_len + 72;
         if witness.len() < settlement_script_len {
             return Err(Error::WitnessLenError);
@@ -246,7 +246,7 @@ fn auth() -> Result<(), Error> {
         while witness.len() > i {
             debug!("i: {}, len: {}", i, witness.len());
             let unlock_type = witness[i];
-            if unlock_type >= pending_htlc_count as u8 && unlock_type != 0xFD && unlock_type != 0xFE
+            if unlock_type >= pending_htlc_count as u8 && unlock_type != 0xFE && unlock_type != 0xFF
             {
                 debug!("Invalid unlock type 1: {:?}", witness);
                 return Err(Error::InvalidUnlockType);
@@ -393,67 +393,59 @@ fn auth() -> Result<(), Error> {
             }
         }
 
-        // settlement for one or two parties
+        // settlement for local or remote parties
         let mut two_parties_all_settled = false;
-        let zero = [0u8; 16];
         if settlements.len() == 1 {
             let settlement = settlements.remove(0);
             match settlement.unlock_type() {
-                0xFD => {
-                    // local settlement should wait for delay_epoch
-                    if !check_input_since(delay_epoch) {
-                        return Err(Error::InvalidSince);
-                    }
-                    let settlement_one_pubkey_hash: [u8; 20] = witness
-                        [pending_htlcs_len..pending_htlcs_len + 20]
-                        .try_into()
-                        .unwrap();
-                    let settlement_one_amount = u128::from_le_bytes(
-                        witness[pending_htlcs_len + 20..pending_htlcs_len + 36]
-                            .try_into()
-                            .unwrap(),
-                    );
-                    let settlement_two_amount = u128::from_le_bytes(
-                        witness[pending_htlcs_len + 56..pending_htlcs_len + 72]
-                            .try_into()
-                            .unwrap(),
-                    );
-                    new_amount -= settlement_one_amount;
-
-                    new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 20]);
-                    new_settlement_script.push(zero.as_slice());
-                    new_settlement_script
-                        .push(&witness[pending_htlcs_len + 36..pending_htlcs_len + 72]);
-                    signatures_to_verify.push((settlement.signature(), settlement_one_pubkey_hash));
-
-                    two_parties_all_settled = settlement_two_amount == 0;
-                }
                 0xFE => {
                     // remote settlement should wait for delay_epoch
                     if !check_input_since(delay_epoch) {
                         return Err(Error::InvalidSince);
                     }
-                    let settlement_two_pubkey_hash: [u8; 20] = witness
-                        [pending_htlcs_len + 36..pending_htlcs_len + 56]
+                    let settlement_remote_pubkey_hash: [u8; 20] = witness
+                        [pending_htlcs_len..pending_htlcs_len + 20]
                         .try_into()
                         .unwrap();
-                    let settlement_two_amount = u128::from_le_bytes(
-                        witness[pending_htlcs_len + 56..pending_htlcs_len + 72]
-                            .try_into()
-                            .unwrap(),
-                    );
-                    let settlement_one_amount = u128::from_le_bytes(
+                    let settlement_remote_amount = u128::from_le_bytes(
                         witness[pending_htlcs_len + 20..pending_htlcs_len + 36]
                             .try_into()
                             .unwrap(),
                     );
-                    new_amount -= settlement_two_amount;
+                    new_amount -= settlement_remote_amount;
 
-                    new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 56]);
-                    new_settlement_script.push(zero.as_slice());
-                    signatures_to_verify.push((settlement.signature(), settlement_two_pubkey_hash));
+                    new_settlement_script.push(&[0u8; 36]);
+                    new_settlement_script
+                        .push(&witness[pending_htlcs_len + 36..pending_htlcs_len + 72]);
+                    signatures_to_verify
+                        .push((settlement.signature(), settlement_remote_pubkey_hash));
 
-                    two_parties_all_settled = settlement_one_amount == 0;
+                    two_parties_all_settled =
+                        witness[pending_htlcs_len + 36..pending_htlcs_len + 72] == [0u8; 36];
+                }
+                0xFF => {
+                    // local settlement should wait for delay_epoch
+                    if !check_input_since(delay_epoch) {
+                        return Err(Error::InvalidSince);
+                    }
+                    let settlement_local_pubkey_hash: [u8; 20] = witness
+                        [pending_htlcs_len + 36..pending_htlcs_len + 56]
+                        .try_into()
+                        .unwrap();
+                    let settlement_local_amount = u128::from_le_bytes(
+                        witness[pending_htlcs_len + 56..pending_htlcs_len + 72]
+                            .try_into()
+                            .unwrap(),
+                    );
+                    new_amount -= settlement_local_amount;
+
+                    new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 36]);
+                    new_settlement_script.push(&[0u8; 36]);
+                    signatures_to_verify
+                        .push((settlement.signature(), settlement_local_pubkey_hash));
+
+                    two_parties_all_settled =
+                        witness[pending_htlcs_len..pending_htlcs_len + 36] == [0u8; 36];
                 }
                 unlock => {
                     debug!("Invalid unlock type 2: {}", unlock);
