@@ -8,7 +8,7 @@ The lock script args is concatenated by the following fields:
 - `pubkey_hash`: 20 bytes, hash result of blake160(x only aggregated public key)
 - `delay_epoch`: 8 bytes, u64 in little endian, must be a relative [EpochNumberWithFraction](https://github.com/nervosnetwork/ckb/blob/develop/rpc/README.md#type-epochnumberwithfraction)
 - `version`: 8 bytes, u64 in big-endian
-- `settlement_hash`: 20 bytes, hash result of blake160(pending_htlc_count || N * pending_htlc || settlement_one_pubkey_hash || settlement_one_amount || settlement_two_pubkey_hash || settlement_two_amount)
+- `settlement_hash`: 20 bytes, hash result of blake160(pending_htlc_count || N * pending_htlc || settlement_remote_pubkey_hash || settlement_remote_amount || settlement_local_pubkey_hash || settlement_local_amount)
 
 To unlock this lock, the transaction must provide the following fields in the witness:
 - `empty_witness_args`: 16 bytes, fixed to 0x10000000100000001000000010000000, for compatibility with the xudt
@@ -28,13 +28,13 @@ For settlement unlock process, the transaction must provide the following fields
     - `remote_htlc_pubkey_hash`: 20 bytes, hash result of blake160(remote_htlc_pubkey)
     - `local_htlc_pubkey_hash`: 20 bytes, hash result of blake160(local_htlc_pubkey)
     - `htlc_expiry`: 8 bytes, u64 in little endian, must be an absolute timestamp [since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md)
-- `settlement_one_pubkey_hash`: 20 bytes, hash result of blake160(pubkey)
-- `settlement_one_amount`: 16 bytes, u128 in little endian
-- `settlement_two_pubkey_hash`: 20 bytes, hash result of blake160(pubkey)
-- `settlement_two_amount`: 16 bytes, u128 in little endian
+- `settlement_remote_pubkey_hash`: 20 bytes, hash result of blake160(pubkey)
+- `settlement_remote_amount`: 16 bytes, u128 in little endian
+- `settlement_local_pubkey_hash`: 20 bytes, hash result of blake160(pubkey)
+- `settlement_local_amount`: 16 bytes, u128 in little endian
 
 - `unlocks`: A group of settlement unlock signature and preimage
-    - `unlock_type`: 0x00 ~ 0xFC for pending htlc group index, 0xFD for settlement one, 0xFE for settlement two.
+    - `unlock_type`: 0x00 ~ 0xFC for pending htlc group index, 0xFD for settlement local, 0xFE for settlement remote.
     - `with_preimage`: 0x00 without preimage, 0x01 with preimage
     - `signature`: 65 bytes, the signature of the xxx_pubkey
     - `preimage`: 32 bytes, an optional field to provide the preimage of the payment_hash
@@ -52,8 +52,8 @@ The new settlement script is constructed by:
    - Remaining unsettled HTLCs in the same 85-byte format
 
 2. **Updated settlement amounts**: Adjust party amounts based on settlements
-   - For local settlement (unlock_type = 0xFD): Set settlement_one_amount to 0
-   - For remote settlement (unlock_type = 0xFE): Set settlement_two_amount to 0
+   - For local settlement (unlock_type = 0xFD): Set settlement_remote_amount to 0
+   - For remote settlement (unlock_type = 0xFE): Set settlement_local_amount to 0
    - For HTLC settlements: Deduct payment amounts from total available funds
 
 ### New Lock Script Args Construction
