@@ -19,9 +19,11 @@ use ckb_std::{
     debug,
     error::SysError,
     high_level::{
-        exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type, load_input_since, load_script, load_transaction, load_witness, spawn_cell, QueryIter
+        QueryIter, exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock,
+        load_cell_type, load_input_since, load_script, load_transaction, load_witness, spawn_cell,
     },
-    since::{EpochNumberWithFraction, LockValue, Since}, syscalls::wait,
+    since::{EpochNumberWithFraction, LockValue, Since},
+    syscalls::wait,
 };
 use hex::encode;
 use sha2::{Digest, Sha256};
@@ -392,6 +394,7 @@ fn auth() -> Result<(), Error> {
         }
 
         // settlement for one or two parties
+        let mut two_parties_all_settled = false;
         let zero = [0u8; 16];
         if settlements.len() == 1 {
             let settlement = settlements.remove(0);
@@ -410,6 +413,11 @@ fn auth() -> Result<(), Error> {
                             .try_into()
                             .unwrap(),
                     );
+                    let settlement_two_amount = u128::from_le_bytes(
+                        witness[pending_htlcs_len + 56..pending_htlcs_len + 72]
+                            .try_into()
+                            .unwrap(),
+                    );
                     new_amount -= settlement_one_amount;
 
                     new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 20]);
@@ -417,6 +425,8 @@ fn auth() -> Result<(), Error> {
                     new_settlement_script
                         .push(&witness[pending_htlcs_len + 36..pending_htlcs_len + 72]);
                     signatures_to_verify.push((settlement.signature(), settlement_one_pubkey_hash));
+
+                    two_parties_all_settled = settlement_two_amount == 0;
                 }
                 0xFE => {
                     // remote settlement should wait for delay_epoch
@@ -432,11 +442,18 @@ fn auth() -> Result<(), Error> {
                             .try_into()
                             .unwrap(),
                     );
+                    let settlement_one_amount = u128::from_le_bytes(
+                        witness[pending_htlcs_len + 20..pending_htlcs_len + 36]
+                            .try_into()
+                            .unwrap(),
+                    );
                     new_amount -= settlement_two_amount;
 
                     new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 56]);
                     new_settlement_script.push(zero.as_slice());
                     signatures_to_verify.push((settlement.signature(), settlement_two_pubkey_hash));
+
+                    two_parties_all_settled = settlement_one_amount == 0;
                 }
                 unlock => {
                     debug!("Invalid unlock type 2: {}", unlock);
@@ -453,7 +470,7 @@ fn auth() -> Result<(), Error> {
         debug!("new_amount: {}", new_amount);
 
         // verify the first output cell's lock script and capacity are correct
-        if new_amount > 0 {
+        if new_amount > 0 && !two_parties_all_settled {
             let output_lock = load_cell_lock(0, Source::Output)?;
             let expected_lock_args = [
                 &args[0..36],
