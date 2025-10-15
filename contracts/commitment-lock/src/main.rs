@@ -321,7 +321,7 @@ fn auth() -> Result<(), Error> {
                             } {
                                 return Err(Error::PreimageError);
                             }
-                            new_amount -= htlc.payment_amount();
+                            new_amount = new_amount.saturating_sub(htlc.payment_amount());
                             signatures_to_verify.push((
                                 settlements.remove(0).signature(),
                                 htlc.remote_htlc_pubkey_hash(),
@@ -335,7 +335,7 @@ fn auth() -> Result<(), Error> {
                             let since = Since::new(raw_since_value);
                             let htlc_expiry = Since::new(htlc.htlc_expiry());
                             if since >= htlc_expiry {
-                                new_amount -= htlc.payment_amount();
+                                new_amount = new_amount.saturating_sub(htlc.payment_amount());
                                 signatures_to_verify.push((
                                     settlements.remove(0).signature(),
                                     htlc.local_htlc_pubkey_hash(),
@@ -363,7 +363,7 @@ fn auth() -> Result<(), Error> {
                             } {
                                 return Err(Error::PreimageError);
                             }
-                            new_amount -= htlc.payment_amount();
+                            new_amount = new_amount.saturating_sub(htlc.payment_amount());
                             signatures_to_verify.push((
                                 settlements.remove(0).signature(),
                                 htlc.local_htlc_pubkey_hash(),
@@ -377,7 +377,7 @@ fn auth() -> Result<(), Error> {
                             let since = Since::new(raw_since_value);
                             let htlc_expiry = Since::new(htlc.htlc_expiry());
                             if since >= htlc_expiry {
-                                new_amount -= htlc.payment_amount();
+                                new_amount = new_amount.saturating_sub(htlc.payment_amount());
                                 signatures_to_verify.push((
                                     settlements.remove(0).signature(),
                                     htlc.remote_htlc_pubkey_hash(),
@@ -412,7 +412,7 @@ fn auth() -> Result<(), Error> {
                             .try_into()
                             .unwrap(),
                     );
-                    new_amount -= settlement_remote_amount;
+                    new_amount = new_amount.saturating_sub(settlement_remote_amount);
 
                     new_settlement_script.push(&[0u8; 36]);
                     new_settlement_script
@@ -437,7 +437,7 @@ fn auth() -> Result<(), Error> {
                             .try_into()
                             .unwrap(),
                     );
-                    new_amount -= settlement_local_amount;
+                    new_amount = new_amount.saturating_sub(settlement_local_amount);
 
                     new_settlement_script.push(&witness[pending_htlcs_len..pending_htlcs_len + 36]);
                     new_settlement_script.push(&[0u8; 36]);
