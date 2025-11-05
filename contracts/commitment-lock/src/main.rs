@@ -479,13 +479,7 @@ fn auth() -> Result<(), Error> {
 
             match type_script {
                 Some(udt_script) => {
-                    // verify the first output cell's capacity, type script and udt amount are correct
-                    let output_capacity = load_cell_capacity(0, Source::Output)?;
-                    let input_capacity = load_cell_capacity(0, Source::GroupInput)?;
-                    if output_capacity != input_capacity {
-                        return Err(Error::OutputCapacityError);
-                    }
-
+                    // verify the first output cell's type script and udt amount are correct
                     let output_type = load_cell_type(0, Source::Output)?;
                     if output_type != Some(udt_script) {
                         return Err(Error::OutputTypeError);
