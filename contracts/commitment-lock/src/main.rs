@@ -395,6 +395,7 @@ fn auth() -> Result<(), Error> {
 
         // settlement for local or remote parties
         let mut two_parties_all_settled = false;
+        let mut is_party_settlement = false;
         if settlements.len() == 1 {
             let settlement = settlements.remove(0);
             match settlement.unlock_type() {
@@ -422,6 +423,7 @@ fn auth() -> Result<(), Error> {
 
                     two_parties_all_settled =
                         witness[pending_htlcs_len + 36..pending_htlcs_len + 72] == [0u8; 36];
+                    is_party_settlement = true;
                 }
                 0xFF => {
                     // local settlement should wait for delay_epoch
@@ -446,6 +448,7 @@ fn auth() -> Result<(), Error> {
 
                     two_parties_all_settled =
                         witness[pending_htlcs_len..pending_htlcs_len + 36] == [0u8; 36];
+                    is_party_settlement = true;
                 }
                 unlock => {
                     debug!("Invalid unlock type 2: {}", unlock);
@@ -479,7 +482,15 @@ fn auth() -> Result<(), Error> {
 
             match type_script {
                 Some(udt_script) => {
-                    // verify the first output cell's type script and udt amount are correct
+                    // verify the first output cell's capacity, type script and udt amount are correct
+                    if !is_party_settlement {
+                        let output_capacity = load_cell_capacity(0, Source::Output)?;
+                        let input_capacity = load_cell_capacity(0, Source::GroupInput)?;
+                        if output_capacity != input_capacity {
+                            return Err(Error::OutputCapacityError);
+                        }
+                    }
+
                     let output_type = load_cell_type(0, Source::Output)?;
                     if output_type != Some(udt_script) {
                         return Err(Error::OutputTypeError);
