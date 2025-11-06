@@ -450,8 +450,8 @@ fn auth() -> Result<(), Error> {
                         witness[pending_htlcs_len..pending_htlcs_len + 36] == [0u8; 36];
                     is_party_settlement = true;
                 }
-                unlock => {
-                    debug!("Invalid unlock type 2: {}", unlock);
+                _unlock => {
+                    debug!("Invalid unlock type 2: {}", _unlock);
                     return Err(Error::InvalidUnlockType);
                 }
             }
