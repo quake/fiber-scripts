@@ -272,7 +272,7 @@ fn auth() -> Result<(), Error> {
             return Err(Error::InvalidSettlementCount);
         }
 
-        let raw_since_value = load_input_since(0, Source::GroupInput)?;
+        let raw_since_value = load_expiry_raw_since_value();
         let delay_epoch = Since::new(u64::from_le_bytes(args[20..28].try_into().unwrap()));
         let message = {
             let tx = load_transaction()?
@@ -537,17 +537,25 @@ fn auth() -> Result<(), Error> {
     }
 }
 
-// Check if any input `since` is a relative epoch and >= `delay_epoch`.
+// Check if input `since` is a relative epoch and >= `delay_epoch`.
 fn check_input_since(delay_epoch: Since) -> bool {
-    QueryIter::new(load_input_since, Source::Input).any(|since| {
-        let since = Since::new(since);
-        since
-            .extract_lock_value()
-            .map(|lock_value| matches!(lock_value, LockValue::EpochNumberWithFraction(_)))
-            .unwrap_or_default()
-            && since.is_relative()
-            && since >= delay_epoch
-    })
+    let raw_since = load_input_since(0, Source::GroupInput).unwrap_or_default();
+    let since = Since::new(raw_since);
+    since
+        .extract_lock_value()
+        .map(|lock_value| matches!(lock_value, LockValue::EpochNumberWithFraction(_)))
+        .unwrap_or_default()
+        && since.is_relative()
+        && since >= delay_epoch
+}
+
+fn load_expiry_raw_since_value() -> u64 {
+    QueryIter::new(load_input_since, Source::Input)
+        .find(|&raw_since| {
+            let since = Since::new(raw_since);
+            matches!(since.extract_lock_value(), Some(LockValue::Timestamp(_)) if since.is_absolute())
+        })
+        .unwrap_or_default()
 }
 
 // Calculate the product of delay_epoch and a fraction
