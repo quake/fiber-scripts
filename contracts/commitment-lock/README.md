@@ -9,6 +9,7 @@ The lock script args is concatenated by the following fields:
 - `delay_epoch`: 8 bytes, u64 in little endian, must be a relative [EpochNumberWithFraction](https://github.com/nervosnetwork/ckb/blob/develop/rpc/README.md#type-epochnumberwithfraction)
 - `version`: 8 bytes, u64 in big-endian
 - `settlement_hash`: 20 bytes, hash result of blake160(pending_htlc_count || N * pending_htlc || settlement_remote_pubkey_hash || settlement_remote_amount || settlement_local_pubkey_hash || settlement_local_amount)
+- `settlement_flag`: 1 byte, 0x00 means this cell is created for first funding cell unlock, 0x01 means this cell is created for subsequent commitment cell unlock, others are reserved
 
 To unlock this lock, the transaction must provide the following fields in the witness:
 - `empty_witness_args`: 16 bytes, fixed to 0x10000000100000001000000010000000, for compatibility with the xudt

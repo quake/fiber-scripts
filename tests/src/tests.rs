@@ -234,6 +234,7 @@ fn test_commitment_lock_no_pending_htlcs() {
         delay_epoch.as_u64().to_le_bytes().as_slice(),
         commitment_tx_version.to_be_bytes().as_slice(),
         &blake2b_256(&settlement_script)[0..20],
+        &[0x00],
     ]
     .concat();
 
@@ -329,6 +330,7 @@ fn test_commitment_lock_no_pending_htlcs() {
         delay_epoch.as_u64().to_le_bytes().as_slice(),
         commitment_tx_version.to_be_bytes().as_slice(),
         &blake2b_256(&new_settlement_script)[0..20],
+        &[0x01],
     ]
     .concat();
 
@@ -499,6 +501,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         delay_epoch.as_u64().to_le_bytes().as_slice(),
         commitment_tx_version.to_be_bytes().as_slice(),
         &blake2b_256(&settlement_script)[0..20],
+        &[0x00],
     ]
     .concat();
 
@@ -560,6 +563,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         delay_epoch.as_u64().to_le_bytes().as_slice(),
         commitment_tx_version.to_be_bytes().as_slice(),
         &blake2b_256(new_settlement_script)[0..20],
+        &[0x01],
     ]
     .concat();
     let new_lock_script = lock_script
@@ -773,6 +777,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         delay_epoch.as_u64().to_le_bytes().as_slice(),
         commitment_tx_version.to_be_bytes().as_slice(),
         &blake2b_256(new_settlement_script)[0..20],
+        &[0x01],
     ]
     .concat();
     let new_lock_script = lock_script
@@ -913,6 +918,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         delay_epoch.as_u64().to_le_bytes().as_slice(),
         commitment_tx_version.to_be_bytes().as_slice(),
         &blake2b_256(&new_settlement_script)[0..20],
+        &[0x01],
     ]
     .concat();
 
@@ -990,6 +996,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         delay_epoch.as_u64().to_le_bytes().as_slice(),
         commitment_tx_version.to_be_bytes().as_slice(),
         &blake2b_256(&new_settlement_script)[0..20],
+        &[0x01],
     ]
     .concat();
 
@@ -1124,6 +1131,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         delay_epoch.as_u64().to_le_bytes().as_slice(),
         commitment_tx_version.to_be_bytes().as_slice(),
         &blake2b_256(&settlement_script)[0..20],
+        &[0x00],
     ]
     .concat();
 
@@ -1196,6 +1204,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         delay_epoch.as_u64().to_le_bytes().as_slice(),
         commitment_tx_version.to_be_bytes().as_slice(),
         &blake2b_256(&new_settlement_script)[0..20],
+        &[0x01],
     ]
     .concat();
     let new_lock_script = lock_script
@@ -1353,6 +1362,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
         delay_epoch.as_u64().to_le_bytes().as_slice(),
         commitment_tx_version.to_be_bytes().as_slice(),
         &blake2b_256(&new_settlement_script)[0..20],
+        &[0x01],
     ]
     .concat();
     let new_lock_script = lock_script.as_builder().args(new_args.pack()).build();

@@ -169,9 +169,10 @@ fn auth() -> Result<(), Error> {
 
     let script = load_script()?;
     let args: Bytes = script.args().unpack();
-    if args.len() != 56 {
+    if args.len() != 57 {
         return Err(Error::ArgsLenError);
     }
+    let is_first_settlement = args[56] == 0x00;
 
     let mut witness = load_witness(0, Source::GroupInput)?;
     if witness
@@ -306,7 +307,7 @@ fn auth() -> Result<(), Error> {
                     HtlcType::Offered => {
                         if raw_since_value == 0 {
                             // Preimage unlock delay_epoch should be shorter than the expiry unlock, we use 1/3 of delay_epoch
-                            if !check_input_since(mul(delay_epoch, 1, 3)) {
+                            if is_first_settlement && !check_input_since(mul(delay_epoch, 1, 3)) {
                                 return Err(Error::InvalidSince);
                             }
                             // when input since is 0, it means the unlock logic is for remote_htlc pubkey and preimage
@@ -328,7 +329,7 @@ fn auth() -> Result<(), Error> {
                             ));
                         } else {
                             // Expiry unlock delay_epoch should be shorter than non-pending unlock and longer than the preimage unlock, we use 2/3 of delay_epoch
-                            if !check_input_since(mul(delay_epoch, 2, 3)) {
+                            if is_first_settlement && !check_input_since(mul(delay_epoch, 2, 3)) {
                                 return Err(Error::InvalidSince);
                             }
                             // when input since is not 0, it means the unlock logic is for local_htlc pubkey and htlc expiry
@@ -348,7 +349,7 @@ fn auth() -> Result<(), Error> {
                     HtlcType::Received => {
                         if raw_since_value == 0 {
                             // Preimage unlock delay_epoch should be shorter than the expiry unlock, we use 1/3 of delay_epoch
-                            if !check_input_since(mul(delay_epoch, 1, 3)) {
+                            if is_first_settlement && !check_input_since(mul(delay_epoch, 1, 3)) {
                                 return Err(Error::InvalidSince);
                             }
                             // when input since is 0, it means the unlock logic is for local_htlc pubkey and preimage
@@ -370,7 +371,7 @@ fn auth() -> Result<(), Error> {
                             ));
                         } else {
                             // Expiry unlock delay_epoch should be shorter than non-pending unlock and longer than the preimage unlock, we use 2/3 of delay_epoch
-                            if !check_input_since(mul(delay_epoch, 2, 3)) {
+                            if is_first_settlement && !check_input_since(mul(delay_epoch, 2, 3)) {
                                 return Err(Error::InvalidSince);
                             }
                             // when input since is not 0, it means the unlock logic is for remote_htlc pubkey and htlc expiry
@@ -401,7 +402,7 @@ fn auth() -> Result<(), Error> {
             match settlement.unlock_type() {
                 0xFE => {
                     // remote settlement should wait for delay_epoch
-                    if !check_input_since(delay_epoch) {
+                    if is_first_settlement && !check_input_since(delay_epoch) {
                         return Err(Error::InvalidSince);
                     }
                     let settlement_remote_pubkey_hash: [u8; 20] = witness
@@ -427,7 +428,7 @@ fn auth() -> Result<(), Error> {
                 }
                 0xFF => {
                     // local settlement should wait for delay_epoch
-                    if !check_input_since(delay_epoch) {
+                    if is_first_settlement && !check_input_since(delay_epoch) {
                         return Err(Error::InvalidSince);
                     }
                     let settlement_local_pubkey_hash: [u8; 20] = witness
@@ -470,6 +471,7 @@ fn auth() -> Result<(), Error> {
             let expected_lock_args = [
                 &args[0..36],
                 blake2b_256(new_settlement_script.concat())[0..20].as_ref(),
+                &[0x01], // 0x01 means new cell is created for subsequent commitment cell unlock
             ]
             .concat()
             .pack();
