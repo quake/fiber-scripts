@@ -627,7 +627,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .verify_tx(&fail_tx, MAX_CYCLES)
         .expect_err("wrong preimage should fail");
     println!("error: {}", error);
-    assert!(error.to_string().contains("#21")); // PreimageError
+    assert!(error.to_string().contains("#22")); // PreimageError
 
     // sign with remote_htlc_pubkey and empty preimage should fail
     let witness = [
@@ -646,7 +646,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .verify_tx(&fail_tx, MAX_CYCLES)
         .expect_err("empty preimage should fail");
     println!("error: {}", error);
-    assert!(error.to_string().contains("#21")); // PreimageError
+    assert!(error.to_string().contains("#22")); // PreimageError
 
     // build transaction with local_htlc_pubkey unlock offered pending htlc 1
     let since = Since::from_timestamp(1711976400 + 1000, true).unwrap();
@@ -742,7 +742,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .verify_tx(&fail_tx, MAX_CYCLES)
         .expect_err("none-expired since should fail");
     println!("error: {}", error);
-    assert!(error.to_string().contains("#10")); // InvalidExpiry
+    assert!(error.to_string().contains("#11")); // InvalidExpiry
 
     // build transaction with remote_htlc_pubkey2 unlock received pending htlc 2
     let since = Since::from_timestamp(1712062800 + 1000, true).unwrap();
@@ -885,7 +885,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .verify_tx(&fail_tx, MAX_CYCLES)
         .expect_err("wrong preimage should fail");
     println!("error: {}", error);
-    assert!(error.to_string().contains("#21")); // PreimageError
+    assert!(error.to_string().contains("#22")); // PreimageError
 
     // sign with local_htlc_key2 and empty preimage should fail
     let witness = [
@@ -902,7 +902,7 @@ fn test_commitment_lock_with_two_pending_htlcs() {
         .verify_tx(&fail_tx, MAX_CYCLES)
         .expect_err("empty preimage should fail");
     println!("error: {}", error);
-    assert!(error.to_string().contains("#21")); // PreimageError
+    assert!(error.to_string().contains("#22")); // PreimageError
 
     // test with settlement unlock logic (remote settlement key)
     let new_two_party_settlement = [
@@ -1271,7 +1271,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
     let err = context
         .verify_tx(&fail_tx, MAX_CYCLES)
         .expect_err("wrong preimage should fail");
-    assert!(err.to_string().contains("#21")); // PreimageError
+    assert!(err.to_string().contains("#22")); // PreimageError
 
     // sign with remote_htlc_key1 and empty preimage should fail
     let witness = [
@@ -1287,7 +1287,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
     let err = context
         .verify_tx(&fail_tx, MAX_CYCLES)
         .expect_err("empty preimage should fail");
-    assert!(err.to_string().contains("#21")); // PreimageError
+    assert!(err.to_string().contains("#22")); // PreimageError
 
     // build transaction with local_htlc_pubkey unlock offered pending htlc 1
     let since = Since::from_timestamp(1711976400 + 1000, true).unwrap();
@@ -1462,7 +1462,7 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
     let err = context
         .verify_tx(&fail_tx, MAX_CYCLES)
         .expect_err("wrong preimage should fail");
-    assert!(err.to_string().contains("#21")); // PreimageError
+    assert!(err.to_string().contains("#22")); // PreimageError
 
     // sign with local_htlc_key2 and empty preimage should fail
     let witness = [
@@ -1478,5 +1478,5 @@ fn test_commitment_lock_with_two_pending_htlcs_and_sudt() {
     let err = context
         .verify_tx(&fail_tx, MAX_CYCLES)
         .expect_err("empty preimage should fail");
-    assert!(err.to_string().contains("#21")); // PreimageError
+    assert!(err.to_string().contains("#22")); // PreimageError
 }

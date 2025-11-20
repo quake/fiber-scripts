@@ -16,7 +16,6 @@ use alloc::{ffi::CString, vec::Vec};
 use ckb_std::{
     ckb_constants::Source,
     ckb_types::{bytes::Bytes, core::ScriptHashType, prelude::*},
-    debug,
     error::SysError,
     high_level::{
         QueryIter, exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock,
@@ -42,6 +41,7 @@ pub enum Error {
     InvalidUnlockType,
     InvalidWithPreimageFlag,
     InvalidSettlementCount,
+    InvalidUnlockCount,
     InvalidExpiry,
     ArgsLenError,
     WitnessLenError,
@@ -225,10 +225,7 @@ fn auth() -> Result<(), Error> {
         Ok(())
     } else {
         // settlement unlock process
-        debug!("unlock_count: {}", unlock_count);
         let pending_htlc_count = witness[0] as usize;
-        debug!("pending_htlc_count: {}", pending_htlc_count);
-        debug!("witness: {:x?}", witness);
         // 1 (pending_htlc_count) + pending_htlc_count * HTLC_SCRIPT_LEN
         let pending_htlcs_len = 1 + pending_htlc_count * HTLC_SCRIPT_LEN;
         // settlement_remote_pubkey_hash + settlement_remote_amount + settlement_local_pubkey_hash + settlement_local_amount
@@ -245,11 +242,9 @@ fn auth() -> Result<(), Error> {
         let mut settlement_htlc_count = 0;
         let mut i = settlement_script_len;
         while witness.len() > i {
-            debug!("i: {}, len: {}", i, witness.len());
             let unlock_type = witness[i];
             if unlock_type >= pending_htlc_count as u8 && unlock_type != 0xFE && unlock_type != 0xFF
             {
-                debug!("Invalid unlock type 1: {:?}", witness);
                 return Err(Error::InvalidUnlockType);
             } else if unlock_type < pending_htlc_count as u8 {
                 settlement_htlc_count += 1;
@@ -264,7 +259,6 @@ fn auth() -> Result<(), Error> {
                 ));
                 i += 2 + SIGNATURE_LEN + PREIMAGE_LEN;
             } else {
-                debug!("Invalid with_preimage flag: {}", with_preimage);
                 return Err(Error::InvalidWithPreimageFlag);
             }
         }
@@ -452,7 +446,6 @@ fn auth() -> Result<(), Error> {
                     is_party_settlement = true;
                 }
                 _unlock => {
-                    debug!("Invalid unlock type 2: {}", _unlock);
                     return Err(Error::InvalidUnlockType);
                 }
             }
@@ -461,9 +454,6 @@ fn auth() -> Result<(), Error> {
         } else {
             return Err(Error::InvalidSettlementCount);
         }
-
-        debug!("new_settlement_script: {:x?}", new_settlement_script);
-        debug!("new_amount: {}", new_amount);
 
         // verify the first output cell's lock script and capacity are correct
         if new_amount > 0 && !two_parties_all_settled {
@@ -513,6 +503,11 @@ fn auth() -> Result<(), Error> {
                 }
             }
         }
+
+        if signatures_to_verify.is_empty() {
+            return Err(Error::InvalidUnlockCount);
+        }
+
         // AuthAlgorithmIdCkb = 0
         for (signature, pubkey_hash) in signatures_to_verify {
             let algorithm_id_str = CString::new(encode([0u8])).unwrap();
@@ -530,7 +525,6 @@ fn auth() -> Result<(), Error> {
             let pid = spawn_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args, &[])
                 .map_err(|_| Error::AuthError)?;
             let result = wait(pid).map_err(|_| Error::AuthError)?;
-            debug!("auth result: {}", result);
             if result != 0 {
                 return Err(Error::AuthError);
             }
