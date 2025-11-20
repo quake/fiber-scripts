@@ -1,6 +1,6 @@
 use ckb_gen_types::{packed::CellOutput, prelude::*};
 use std::env;
-use std::fs::{read, File};
+use std::fs::{File, read};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
