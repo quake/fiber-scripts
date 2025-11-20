@@ -18,8 +18,8 @@ use ckb_std::{
     ckb_types::{bytes::Bytes, core::ScriptHashType, prelude::*},
     error::SysError,
     high_level::{
-        QueryIter, exec_cell, load_cell, load_cell_capacity, load_cell_data, load_cell_lock,
-        load_cell_type, load_input_since, load_script, load_transaction, load_witness, spawn_cell,
+        QueryIter, load_cell, load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type,
+        load_input_since, load_script, load_transaction, load_witness, spawn_cell,
     },
     since::{EpochNumberWithFraction, LockValue, Since},
     syscalls::wait,
@@ -221,7 +221,12 @@ fn auth() -> Result<(), Error> {
             pubkey_hash_str.as_c_str(),
         ];
 
-        exec_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args).map_err(|_| Error::AuthError)?;
+        let pid = spawn_cell(&AUTH_CODE_HASH, ScriptHashType::Data1, &args, &[])
+            .map_err(|_| Error::AuthError)?;
+        let result = wait(pid).map_err(|_| Error::AuthError)?;
+        if result != 0 {
+            return Err(Error::AuthError);
+        }
         Ok(())
     } else {
         // settlement unlock process
