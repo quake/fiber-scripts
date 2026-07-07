@@ -23,6 +23,7 @@ use sha2::{Digest, Sha256};
 const MAX_CYCLES: u64 = 10_000_000;
 const BYTE_SHANNONS: u64 = 100_000_000;
 const EMPTY_WITNESS_ARGS: [u8; 16] = [16, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0];
+const CKB_ASSET_TYPE_HASH: [u8; 32] = [0u8; 32];
 
 // a helper fn to generate 2-2 multisig keys for testing
 fn generate_multisig_keys() -> (SecretKey, SecretKey, KeyAggContext) {
@@ -193,6 +194,755 @@ fn test_funding_lock() {
         .verify_tx(&tx, MAX_CYCLES)
         .expect("pass verification");
     println!("consume cycles: {}", cycles);
+}
+
+fn liquidity_lock_args(
+    payment_hash: [u8; 32],
+    claimant_lock: &Script,
+    refund_lock: &Script,
+    refund_after_lock_time: u64,
+    amount: u128,
+    asset_type_hash: [u8; 32],
+) -> Bytes {
+    [
+        payment_hash.to_vec(),
+        blake2b_256(claimant_lock.as_slice()).to_vec(),
+        blake2b_256(refund_lock.as_slice()).to_vec(),
+        refund_after_lock_time.to_le_bytes().to_vec(),
+        amount.to_le_bytes().to_vec(),
+        asset_type_hash.to_vec(),
+    ]
+    .concat()
+    .into()
+}
+
+fn ckb_liquidity_lock_args(
+    payment_hash: [u8; 32],
+    claimant_lock: &Script,
+    refund_lock: &Script,
+    refund_after_lock_time: u64,
+    amount: u128,
+) -> Bytes {
+    liquidity_lock_args(
+        payment_hash,
+        claimant_lock,
+        refund_lock,
+        refund_after_lock_time,
+        amount,
+        CKB_ASSET_TYPE_HASH,
+    )
+}
+
+fn liquidity_claim_witness(preimage: [u8; 32]) -> Bytes {
+    [EMPTY_WITNESS_ARGS.to_vec(), vec![1], preimage.to_vec()]
+        .concat()
+        .into()
+}
+
+fn liquidity_refund_witness() -> Bytes {
+    [EMPTY_WITNESS_ARGS.to_vec(), vec![2]].concat().into()
+}
+
+#[test]
+fn test_liquidity_lock_claim_with_preimage() {
+    let mut context = Context::default();
+    let loader = Loader::default();
+    let liquidity_lock_bin = loader.load_binary("liquidity-lock");
+    let liquidity_lock_out_point = context.deploy_cell(liquidity_lock_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+
+    let claimant_lock = context
+        .build_script(&always_success_out_point, Bytes::from("claimant"))
+        .expect("claimant lock");
+    let refund_lock = context
+        .build_script(&always_success_out_point, Bytes::from("refund"))
+        .expect("refund lock");
+    let preimage = [42u8; 32];
+    let payment_hash = blake2b_256(preimage);
+    let lock_script = context
+        .build_script(
+            &liquidity_lock_out_point,
+            ckb_liquidity_lock_args(
+                payment_hash,
+                &claimant_lock,
+                &refund_lock,
+                100,
+                (999 * BYTE_SHANNONS) as u128,
+            ),
+        )
+        .expect("liquidity lock");
+
+    let input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script)
+            .build(),
+        Bytes::new(),
+    );
+    let input = CellInput::new_builder()
+        .previous_output(input_out_point)
+        .build();
+    let output = CellOutput::new_builder()
+        .capacity((999 * BYTE_SHANNONS).pack())
+        .lock(claimant_lock)
+        .build();
+    let tx = TransactionBuilder::default()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(liquidity_lock_out_point)
+                .build(),
+        )
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
+        .input(input)
+        .output(output)
+        .output_data(Bytes::new().pack())
+        .witness(liquidity_claim_witness(preimage).pack())
+        .build();
+
+    let cycles = context
+        .verify_tx(&tx, MAX_CYCLES)
+        .expect("liquidity claim succeeds");
+    println!("consume cycles: {}", cycles);
+}
+
+#[test]
+fn test_liquidity_lock_refund_after_lock_time() {
+    let mut context = Context::default();
+    let loader = Loader::default();
+    let liquidity_lock_bin = loader.load_binary("liquidity-lock");
+    let liquidity_lock_out_point = context.deploy_cell(liquidity_lock_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+
+    let claimant_lock = context
+        .build_script(&always_success_out_point, Bytes::from("claimant"))
+        .expect("claimant lock");
+    let refund_lock = context
+        .build_script(&always_success_out_point, Bytes::from("refund"))
+        .expect("refund lock");
+    let refund_since = Since::from_epoch(EpochNumberWithFraction::new(1, 0, 1), false);
+    let preimage = [7u8; 32];
+    let payment_hash = blake2b_256(preimage);
+    let lock_script = context
+        .build_script(
+            &liquidity_lock_out_point,
+            liquidity_lock_args(
+                payment_hash,
+                &claimant_lock,
+                &refund_lock,
+                refund_since.as_u64(),
+                (999 * BYTE_SHANNONS) as u128,
+                CKB_ASSET_TYPE_HASH,
+            ),
+        )
+        .expect("liquidity lock");
+
+    let input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script)
+            .build(),
+        Bytes::new(),
+    );
+    let input = CellInput::new_builder()
+        .previous_output(input_out_point)
+        .since(refund_since.as_u64().pack())
+        .build();
+    let output = CellOutput::new_builder()
+        .capacity((999 * BYTE_SHANNONS).pack())
+        .lock(refund_lock)
+        .build();
+    let tx = TransactionBuilder::default()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(liquidity_lock_out_point)
+                .build(),
+        )
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
+        .input(input)
+        .output(output)
+        .output_data(Bytes::new().pack())
+        .witness(liquidity_refund_witness().pack())
+        .build();
+
+    let cycles = context
+        .verify_tx(&tx, MAX_CYCLES)
+        .expect("liquidity refund succeeds after lock time");
+    println!("consume cycles: {}", cycles);
+}
+
+#[test]
+fn test_liquidity_lock_claims_udt_with_exact_amount() {
+    let mut context = Context::default();
+    let loader = Loader::default();
+    let liquidity_lock_bin = loader.load_binary("liquidity-lock");
+    let liquidity_lock_out_point = context.deploy_cell(liquidity_lock_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+
+    let claimant_lock = context
+        .build_script(&always_success_out_point, Bytes::from("claimant"))
+        .expect("claimant lock");
+    let refund_lock = context
+        .build_script(&always_success_out_point, Bytes::from("refund"))
+        .expect("refund lock");
+    let type_script = context
+        .build_script(&always_success_out_point, Bytes::from("udt"))
+        .expect("type");
+    let preimage = [42u8; 32];
+    let payment_hash = blake2b_256(preimage);
+    let lock_script = context
+        .build_script(
+            &liquidity_lock_out_point,
+            liquidity_lock_args(
+                payment_hash,
+                &claimant_lock,
+                &refund_lock,
+                100,
+                1000,
+                blake2b_256(type_script.as_slice()),
+            ),
+        )
+        .expect("liquidity lock");
+
+    let input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script)
+            .type_(Some(type_script.clone()).pack())
+            .build(),
+        1000u128.to_le_bytes().to_vec().into(),
+    );
+    let tx = TransactionBuilder::default()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(liquidity_lock_out_point)
+                .build(),
+        )
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
+        .input(
+            CellInput::new_builder()
+                .previous_output(input_out_point)
+                .build(),
+        )
+        .output(
+            CellOutput::new_builder()
+                .capacity((999 * BYTE_SHANNONS).pack())
+                .lock(claimant_lock)
+                .type_(Some(type_script).pack())
+                .build(),
+        )
+        .output_data(1000u128.to_le_bytes().to_vec().pack())
+        .witness(liquidity_claim_witness(preimage).pack())
+        .build();
+
+    let cycles = context
+        .verify_tx(&tx, MAX_CYCLES)
+        .expect("liquidity UDT claim succeeds");
+    println!("consume cycles: {}", cycles);
+}
+
+#[test]
+fn test_liquidity_lock_rejects_wrong_preimage() {
+    let mut context = Context::default();
+    let loader = Loader::default();
+    let liquidity_lock_bin = loader.load_binary("liquidity-lock");
+    let liquidity_lock_out_point = context.deploy_cell(liquidity_lock_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+
+    let claimant_lock = context
+        .build_script(&always_success_out_point, Bytes::from("claimant"))
+        .expect("claimant lock");
+    let refund_lock = context
+        .build_script(&always_success_out_point, Bytes::from("refund"))
+        .expect("refund lock");
+    let expected_preimage = [1u8; 32];
+    let wrong_preimage = [2u8; 32];
+    let payment_hash = blake2b_256(expected_preimage);
+    let lock_script = context
+        .build_script(
+            &liquidity_lock_out_point,
+            ckb_liquidity_lock_args(
+                payment_hash,
+                &claimant_lock,
+                &refund_lock,
+                100,
+                (999 * BYTE_SHANNONS) as u128,
+            ),
+        )
+        .expect("liquidity lock");
+
+    let input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script)
+            .build(),
+        Bytes::new(),
+    );
+    let tx = TransactionBuilder::default()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(liquidity_lock_out_point)
+                .build(),
+        )
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
+        .input(
+            CellInput::new_builder()
+                .previous_output(input_out_point)
+                .build(),
+        )
+        .output(
+            CellOutput::new_builder()
+                .capacity((999 * BYTE_SHANNONS).pack())
+                .lock(claimant_lock)
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .witness(liquidity_claim_witness(wrong_preimage).pack())
+        .build();
+
+    assert!(context.verify_tx(&tx, MAX_CYCLES).is_err());
+}
+
+#[test]
+fn test_liquidity_lock_rejects_early_refund() {
+    let mut context = Context::default();
+    let loader = Loader::default();
+    let liquidity_lock_bin = loader.load_binary("liquidity-lock");
+    let liquidity_lock_out_point = context.deploy_cell(liquidity_lock_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+
+    let claimant_lock = context
+        .build_script(&always_success_out_point, Bytes::from("claimant"))
+        .expect("claimant lock");
+    let refund_lock = context
+        .build_script(&always_success_out_point, Bytes::from("refund"))
+        .expect("refund lock");
+    let refund_since = Since::from_epoch(EpochNumberWithFraction::new(1, 0, 1), false);
+    let early_since = Since::from_epoch(EpochNumberWithFraction::new(0, 0, 1), false);
+    let preimage = [7u8; 32];
+    let payment_hash = blake2b_256(preimage);
+    let lock_script = context
+        .build_script(
+            &liquidity_lock_out_point,
+            liquidity_lock_args(
+                payment_hash,
+                &claimant_lock,
+                &refund_lock,
+                refund_since.as_u64(),
+                (999 * BYTE_SHANNONS) as u128,
+                CKB_ASSET_TYPE_HASH,
+            ),
+        )
+        .expect("liquidity lock");
+
+    let input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script)
+            .build(),
+        Bytes::new(),
+    );
+    let tx = TransactionBuilder::default()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(liquidity_lock_out_point)
+                .build(),
+        )
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
+        .input(
+            CellInput::new_builder()
+                .previous_output(input_out_point)
+                .since(early_since.as_u64().pack())
+                .build(),
+        )
+        .output(
+            CellOutput::new_builder()
+                .capacity((999 * BYTE_SHANNONS).pack())
+                .lock(refund_lock)
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .witness(liquidity_refund_witness().pack())
+        .build();
+
+    assert!(context.verify_tx(&tx, MAX_CYCLES).is_err());
+}
+
+#[test]
+fn test_liquidity_lock_rejects_ckb_amount_below_quote() {
+    let mut context = Context::default();
+    let loader = Loader::default();
+    let liquidity_lock_bin = loader.load_binary("liquidity-lock");
+    let liquidity_lock_out_point = context.deploy_cell(liquidity_lock_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+
+    let claimant_lock = context
+        .build_script(&always_success_out_point, Bytes::from("claimant"))
+        .expect("claimant lock");
+    let refund_lock = context
+        .build_script(&always_success_out_point, Bytes::from("refund"))
+        .expect("refund lock");
+    let preimage = [42u8; 32];
+    let payment_hash = blake2b_256(preimage);
+    let lock_script = context
+        .build_script(
+            &liquidity_lock_out_point,
+            ckb_liquidity_lock_args(
+                payment_hash,
+                &claimant_lock,
+                &refund_lock,
+                100,
+                (999 * BYTE_SHANNONS) as u128,
+            ),
+        )
+        .expect("liquidity lock");
+
+    let input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script)
+            .build(),
+        Bytes::new(),
+    );
+    let tx = TransactionBuilder::default()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(liquidity_lock_out_point)
+                .build(),
+        )
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
+        .input(
+            CellInput::new_builder()
+                .previous_output(input_out_point)
+                .build(),
+        )
+        .output(
+            CellOutput::new_builder()
+                .capacity((998 * BYTE_SHANNONS).pack())
+                .lock(claimant_lock)
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .witness(liquidity_claim_witness(preimage).pack())
+        .build();
+
+    assert!(context.verify_tx(&tx, MAX_CYCLES).is_err());
+}
+
+#[test]
+fn test_liquidity_lock_rejects_udt_type_script_mismatch() {
+    let mut context = Context::default();
+    let loader = Loader::default();
+    let liquidity_lock_bin = loader.load_binary("liquidity-lock");
+    let liquidity_lock_out_point = context.deploy_cell(liquidity_lock_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+
+    let claimant_lock = context
+        .build_script(&always_success_out_point, Bytes::from("claimant"))
+        .expect("claimant lock");
+    let refund_lock = context
+        .build_script(&always_success_out_point, Bytes::from("refund"))
+        .expect("refund lock");
+    let expected_type_script = context
+        .build_script(&always_success_out_point, Bytes::from("expected_udt"))
+        .expect("expected type");
+    let wrong_type_script = context
+        .build_script(&always_success_out_point, Bytes::from("wrong_udt"))
+        .expect("wrong type");
+    let preimage = [42u8; 32];
+    let payment_hash = blake2b_256(preimage);
+    let lock_script = context
+        .build_script(
+            &liquidity_lock_out_point,
+            liquidity_lock_args(
+                payment_hash,
+                &claimant_lock,
+                &refund_lock,
+                100,
+                1000,
+                blake2b_256(expected_type_script.as_slice()),
+            ),
+        )
+        .expect("liquidity lock");
+
+    let input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script)
+            .type_(Some(expected_type_script).pack())
+            .build(),
+        1000u128.to_le_bytes().to_vec().into(),
+    );
+    let tx = TransactionBuilder::default()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(liquidity_lock_out_point)
+                .build(),
+        )
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
+        .input(
+            CellInput::new_builder()
+                .previous_output(input_out_point)
+                .build(),
+        )
+        .output(
+            CellOutput::new_builder()
+                .capacity((999 * BYTE_SHANNONS).pack())
+                .lock(claimant_lock)
+                .type_(Some(wrong_type_script).pack())
+                .build(),
+        )
+        .output_data(1000u128.to_le_bytes().to_vec().pack())
+        .witness(liquidity_claim_witness(preimage).pack())
+        .build();
+
+    assert!(context.verify_tx(&tx, MAX_CYCLES).is_err());
+}
+
+#[test]
+fn test_liquidity_lock_rejects_udt_amount_mismatch() {
+    let mut context = Context::default();
+    let loader = Loader::default();
+    let liquidity_lock_bin = loader.load_binary("liquidity-lock");
+    let liquidity_lock_out_point = context.deploy_cell(liquidity_lock_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+
+    let claimant_lock = context
+        .build_script(&always_success_out_point, Bytes::from("claimant"))
+        .expect("claimant lock");
+    let refund_lock = context
+        .build_script(&always_success_out_point, Bytes::from("refund"))
+        .expect("refund lock");
+    let type_script = context
+        .build_script(&always_success_out_point, Bytes::from("udt"))
+        .expect("type");
+    let preimage = [42u8; 32];
+    let payment_hash = blake2b_256(preimage);
+    let lock_script = context
+        .build_script(
+            &liquidity_lock_out_point,
+            liquidity_lock_args(
+                payment_hash,
+                &claimant_lock,
+                &refund_lock,
+                100,
+                1000,
+                blake2b_256(type_script.as_slice()),
+            ),
+        )
+        .expect("liquidity lock");
+
+    let input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script)
+            .type_(Some(type_script.clone()).pack())
+            .build(),
+        1000u128.to_le_bytes().to_vec().into(),
+    );
+    let tx = TransactionBuilder::default()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(liquidity_lock_out_point)
+                .build(),
+        )
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
+        .input(
+            CellInput::new_builder()
+                .previous_output(input_out_point)
+                .build(),
+        )
+        .output(
+            CellOutput::new_builder()
+                .capacity((999 * BYTE_SHANNONS).pack())
+                .lock(claimant_lock)
+                .type_(Some(type_script).pack())
+                .build(),
+        )
+        .output_data(999u128.to_le_bytes().to_vec().pack())
+        .witness(liquidity_claim_witness(preimage).pack())
+        .build();
+
+    assert!(context.verify_tx(&tx, MAX_CYCLES).is_err());
+}
+
+#[test]
+fn test_liquidity_lock_rejects_udt_amount_above_quote() {
+    let mut context = Context::default();
+    let loader = Loader::default();
+    let liquidity_lock_bin = loader.load_binary("liquidity-lock");
+    let liquidity_lock_out_point = context.deploy_cell(liquidity_lock_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+
+    let claimant_lock = context
+        .build_script(&always_success_out_point, Bytes::from("claimant"))
+        .expect("claimant lock");
+    let refund_lock = context
+        .build_script(&always_success_out_point, Bytes::from("refund"))
+        .expect("refund lock");
+    let type_script = context
+        .build_script(&always_success_out_point, Bytes::from("udt"))
+        .expect("type");
+    let preimage = [42u8; 32];
+    let payment_hash = blake2b_256(preimage);
+    let lock_script = context
+        .build_script(
+            &liquidity_lock_out_point,
+            liquidity_lock_args(
+                payment_hash,
+                &claimant_lock,
+                &refund_lock,
+                100,
+                1000,
+                blake2b_256(type_script.as_slice()),
+            ),
+        )
+        .expect("liquidity lock");
+
+    let input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script)
+            .type_(Some(type_script.clone()).pack())
+            .build(),
+        1000u128.to_le_bytes().to_vec().into(),
+    );
+    let tx = TransactionBuilder::default()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(liquidity_lock_out_point)
+                .build(),
+        )
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
+        .input(
+            CellInput::new_builder()
+                .previous_output(input_out_point)
+                .build(),
+        )
+        .output(
+            CellOutput::new_builder()
+                .capacity((999 * BYTE_SHANNONS).pack())
+                .lock(claimant_lock)
+                .type_(Some(type_script).pack())
+                .build(),
+        )
+        .output_data(1001u128.to_le_bytes().to_vec().pack())
+        .witness(liquidity_claim_witness(preimage).pack())
+        .build();
+
+    assert!(context.verify_tx(&tx, MAX_CYCLES).is_err());
+}
+
+#[test]
+fn test_liquidity_lock_rejects_multiple_group_inputs() {
+    let mut context = Context::default();
+    let loader = Loader::default();
+    let liquidity_lock_bin = loader.load_binary("liquidity-lock");
+    let liquidity_lock_out_point = context.deploy_cell(liquidity_lock_bin);
+    let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+
+    let claimant_lock = context
+        .build_script(&always_success_out_point, Bytes::from("claimant"))
+        .expect("claimant lock");
+    let refund_lock = context
+        .build_script(&always_success_out_point, Bytes::from("refund"))
+        .expect("refund lock");
+    let preimage = [42u8; 32];
+    let payment_hash = blake2b_256(preimage);
+    let lock_script = context
+        .build_script(
+            &liquidity_lock_out_point,
+            ckb_liquidity_lock_args(
+                payment_hash,
+                &claimant_lock,
+                &refund_lock,
+                100,
+                (999 * BYTE_SHANNONS) as u128,
+            ),
+        )
+        .expect("liquidity lock");
+
+    let first_input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script.clone())
+            .build(),
+        Bytes::new(),
+    );
+    let second_input_out_point = context.create_cell(
+        CellOutput::new_builder()
+            .capacity((1000 * BYTE_SHANNONS).pack())
+            .lock(lock_script)
+            .build(),
+        Bytes::new(),
+    );
+    let tx = TransactionBuilder::default()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(liquidity_lock_out_point)
+                .build(),
+        )
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
+        .input(
+            CellInput::new_builder()
+                .previous_output(first_input_out_point)
+                .build(),
+        )
+        .input(
+            CellInput::new_builder()
+                .previous_output(second_input_out_point)
+                .build(),
+        )
+        .output(
+            CellOutput::new_builder()
+                .capacity((999 * BYTE_SHANNONS).pack())
+                .lock(claimant_lock)
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .witness(liquidity_claim_witness(preimage).pack())
+        .build();
+
+    assert!(context.verify_tx(&tx, MAX_CYCLES).is_err());
 }
 
 #[test]
